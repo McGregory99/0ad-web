@@ -1,0 +1,7 @@
+sysroot=${pcfiledir}/../../tools/emsdk/upstream/emscripten/cache/sysroot
+prefix=${pcfiledir}/../deps/prefix
+Name: libxml-2.0
+Description: built in wasm/deps (0ad-web wasm)
+Version: 2.13.5
+Cflags: -pthread -I${prefix}/include/libxml2
+Libs: -L${prefix}/lib -lxml2

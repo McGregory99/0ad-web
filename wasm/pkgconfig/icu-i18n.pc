@@ -1,0 +1,7 @@
+sysroot=${pcfiledir}/../../tools/emsdk/upstream/emscripten/cache/sysroot
+prefix=${pcfiledir}/../deps/prefix
+Name: icu-i18n
+Description: Emscripten port (0ad-web wasm)
+Version: 68.2
+Cflags: -pthread -sUSE_ICU=1
+Libs: -sUSE_ICU=1

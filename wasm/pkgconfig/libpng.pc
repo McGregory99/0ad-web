@@ -1,0 +1,7 @@
+sysroot=${pcfiledir}/../../tools/emsdk/upstream/emscripten/cache/sysroot
+prefix=${pcfiledir}/../deps/prefix
+Name: libpng
+Description: Emscripten port (0ad-web wasm)
+Version: 1.6.44
+Cflags: -pthread -sUSE_LIBPNG=1
+Libs: -sUSE_LIBPNG=1

@@ -1,0 +1,7 @@
+sysroot=${pcfiledir}/../../tools/emsdk/upstream/emscripten/cache/sysroot
+prefix=${pcfiledir}/../deps/prefix
+Name: libenet
+Description: built in wasm/deps (0ad-web wasm)
+Version: 1.3.18
+Cflags: -pthread -I${prefix}/include
+Libs: -L${prefix}/lib -lenet

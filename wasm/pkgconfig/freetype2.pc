@@ -1,0 +1,7 @@
+sysroot=${pcfiledir}/../../tools/emsdk/upstream/emscripten/cache/sysroot
+prefix=${pcfiledir}/../deps/prefix
+Name: freetype2
+Description: Emscripten port (0ad-web wasm)
+Version: 2.13.3
+Cflags: -pthread -sUSE_FREETYPE=1 -I${sysroot}/include/freetype2
+Libs: -sUSE_FREETYPE=1
