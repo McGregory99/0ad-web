@@ -1,9 +1,9 @@
 # Upstream 0 A.D. source checkout (pinned to tag v0.28.0, managed separately)
-upstream/
+/upstream/
 # Game data copied from the official 0.28.0 macOS DMG (3.4 GB)
-data/
+/data/
 # Raw command logs produced by workers
-runs/
+/runs/
 .DS_Store
 # Local Emscripten SDK and build outputs
 tools/emsdk/
