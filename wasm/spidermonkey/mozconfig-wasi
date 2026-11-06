@@ -12,6 +12,7 @@ ac_add_options --disable-clang-plugin
 ac_add_options --disable-debug
 ac_add_options --enable-optimize=-O2
 ac_add_options --enable-portable-baseline-interp
+ac_add_options --enable-portable-baseline-interp-force
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-wasi
 mk_add_options AUTOCLOBBER=1
 # rev2: wasi zlib from wasm/deps/wasi-prefix
