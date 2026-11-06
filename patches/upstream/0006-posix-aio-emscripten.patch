@@ -1,0 +1,14 @@
+diff --color -ru a/source/lib/posix/posix_aio.h b/source/lib/posix/posix_aio.h
+--- a/source/lib/posix/posix_aio.h	2026-11-06 21:51:30
++++ b/source/lib/posix/posix_aio.h	2026-11-06 21:51:30
+@@ -30,8 +30,8 @@
+ 
+ #if OS_WIN
+ # include "lib/sysdep/os/win/wposix/waio.h"
+-#elif OS_ANDROID || OS_OPENBSD
+-// Android doesn't provide aio.h. We don't actually use aio on Linuxes (see
++#elif OS_ANDROID || OS_OPENBSD || defined(__EMSCRIPTEN__)
++// Android (and Emscripten) don't provide aio.h. We don't actually use aio on Linuxes (see
+ // CONFIG2_FILE_ENABLE_AIO) but we use its symbols and structs, so define
+ // them here
+ # if OS_OPENBSD

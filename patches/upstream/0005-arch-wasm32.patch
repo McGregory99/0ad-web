@@ -1,0 +1,18 @@
+diff --color -ru a/source/lib/sysdep/arch.h b/source/lib/sysdep/arch.h
+--- a/source/lib/sysdep/arch.h	2026-11-06 21:50:42
++++ b/source/lib/sysdep/arch.h	2026-11-06 21:50:42
+@@ -84,7 +84,13 @@
+ #endif
+ 
+ // ensure exactly one architecture has been detected
+-#if (ARCH_IA32+ARCH_IA64+ARCH_AMD64+ARCH_ALPHA+ARCH_ARM+ARCH_AARCH64+ARCH_MIPS+ARCH_E2K+ARCH_PPC64) != 1
++#if defined(__wasm32__)
++# define ARCH_WASM32 1
++#else
++# define ARCH_WASM32 0
++#endif
++
++#if (ARCH_IA32+ARCH_IA64+ARCH_AMD64+ARCH_ALPHA+ARCH_ARM+ARCH_AARCH64+ARCH_MIPS+ARCH_E2K+ARCH_PPC64+ARCH_WASM32) != 1
+ # error "architecture not correctly detected (either none or multiple ARCH_* defined)"
+ #endif
+ 

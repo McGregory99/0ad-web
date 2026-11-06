@@ -1,0 +1,50 @@
+diff --color -ru a/build/premake/extern_libs5.lua b/build/premake/extern_libs5.lua
+--- a/build/premake/extern_libs5.lua	2026-11-06 21:50:42
++++ b/build/premake/extern_libs5.lua	2026-11-06 21:50:42
+@@ -289,7 +289,7 @@
+ 		compile_settings = function()
+ 			if os.istarget("windows") then
+ 				add_default_include_paths("fmt")
+-			elseif os.istarget("macosx") then
++			elseif os.istarget("macosx") or arch == "wasm32" then
+ 				pkgconfig.add_includes("fmt")
+ 			end
+ 
+@@ -318,7 +318,7 @@
+ 					dbg_suffix = "d",
+ 					no_delayload = 1,
+ 				})
+-			elseif os.istarget("macosx") then
++			elseif os.istarget("macosx") or arch == "wasm32" then
+ 				-- See comment above as to why this is not also used on Linux or BSD.
+ 				pkgconfig.add_links("fmt")
+ 			else
+diff --color -ru a/build/premake/premake5.lua b/build/premake/premake5.lua
+--- a/build/premake/premake5.lua	2026-11-06 21:50:42
++++ b/build/premake/premake5.lua	2026-11-06 21:50:42
+@@ -168,7 +168,7 @@
+ -- The pc file doesn't specify the required -DDEBUG needed in that case
+ local mozjs_is_debug_build = false
+ if _OPTIONS["with-system-mozjs"] then
+-	local _, errorCode = os.outputof(cc .. " $(pkg-config mozjs-128 --cflags) ./tests/mozdebug.c -o /dev/null")
++	local _, errorCode = os.outputof(cc .. " $(pkg-config mozjs-128 --cflags) -c ./tests/mozdebug.c -o /dev/null")
+ 	if errorCode ~= 0 then
+ 		mozjs_is_debug_build = true
+ 	end
+@@ -1015,11 +1015,15 @@
+ 		macosx = { "lib/sysdep/os/osx", "lib/sysdep/os/unix" },
+ 		bsd = { "lib/sysdep/os/bsd", "lib/sysdep/os/unix", "lib/sysdep/os/unix/x" },
+ 	}
++	-- WebAssembly (Emscripten) is generated as "linux" but only shares the generic Unix code.
++	if arch == "wasm32" then
++		sysdep_dirs[os.target()] = { "lib/sysdep/os/unix" }
++	end
+ 	for i,v in pairs(sysdep_dirs[os.target()]) do
+ 		table.insert(source_dirs, v);
+ 	end
+ 
+-	if os.istarget("linux") then
++	if os.istarget("linux") and arch ~= "wasm32" then
+ 		if _OPTIONS["android"] then
+ 			table.insert(source_dirs, "lib/sysdep/os/android")
+ 		else

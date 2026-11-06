@@ -1,0 +1,18 @@
+   1 ==== Building atlas (release) ====
+   1 ==== Building dapinterface (release) ====
+   1 ==== Building engine (release) ====
+   1 ==== Building gladwrapper (release) ====
+   1 ==== Building graphics (release) ====
+   1 ==== Building gui (release) ====
+   1 ==== Building lobby (release) ====
+   1 ==== Building lowlevel (release) ====
+   1 ==== Building mocks_real (release) ====
+   1 ==== Building mocks_test (release) ====
+   1 ==== Building mongoose (release) ====
+   1 ==== Building network (release) ====
+   1 ==== Building rlinterface (release) ====
+   1 ==== Building scriptinterface (release) ====
+   1 ==== Building simulation2 (release) ====
+   1 ==== Building tinygettext (release) ====
+   1 Linking gladwrapper
+   1 Linking mongoose
