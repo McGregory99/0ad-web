@@ -1,0 +1,11 @@
+--- a/build/premake/premake5.lua	2026-11-06 21:43:59
++++ b/build/premake/premake5.lua	2026-11-06 21:43:59
+@@ -127,6 +127,8 @@
+ 		arch = "arm"
+ 	elseif string.find(machine, "aarch64") == 1 then
+ 		arch = "aarch64"
++	elseif string.find(machine, "wasm32") == 1 then
++		arch = "wasm32"
+ 	elseif string.find(machine, "e2k") == 1 then
+ 		arch = "e2k"
+ 	elseif string.find(machine, "ppc64") == 1 or string.find(machine, "powerpc64") == 1 then
