@@ -20,3 +20,4 @@ tools/wasi-sdk.tar.gz
 tools/rustup/
 tools/cargo/
 wasm/deps/
+wasm/inventory/shaders/
