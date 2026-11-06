@@ -1,0 +1,23 @@
+--- a/source/lib/sysdep/os/emscripten/emscripten.cpp	2026-11-06 22:09:55
++++ b/source/lib/sysdep/os/emscripten/emscripten.cpp	2026-11-06 22:09:55
+@@ -11,6 +11,8 @@
+ #include "lib/sysdep/dir_watch.h"
+ #include "lib/sysdep/sysdep.h"
+ 
++#include <cstdlib>
++
+ #ifdef __EMSCRIPTEN_PTHREADS__
+ # include <emscripten/threading.h>
+ #endif
+@@ -19,8 +21,11 @@
+ // root from this path (binaries/system/<exe>), so return the virtual path
+ // that the browser loader lays out in the in-memory filesystem
+ // (Paths.cpp requires that this file exists).
++// ZEROAD_EXECUTABLE overrides it, e.g. for headless runs in Node with NODERAWFS.
+ OsPath sys_ExecutablePathname()
+ {
++	if(const char* override = getenv("ZEROAD_EXECUTABLE"))
++		return OsPath(override);
+ 	return OsPath("/0ad/binaries/system/pyrogenesis");
+ }
+ 
