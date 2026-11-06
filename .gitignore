@@ -21,3 +21,4 @@ tools/rustup/
 tools/cargo/
 wasm/deps/
 wasm/inventory/shaders/
+tools/eval/
