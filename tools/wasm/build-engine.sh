@@ -13,7 +13,7 @@ CC=emcc CXX=em++ ../../libraries/source/premake-core/bin/premake5 --file=premake
 cd ../workspaces/emscripten
 # Link profile. node: headless runs in Node (gate T0.3) with direct host file access.
 WASM_PROFILE="${WASM_PROFILE:-node}"
-COMMON_LDFLAGS="-O2 -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=2MB -sPTHREAD_POOL_SIZE=8"
+COMMON_LDFLAGS="-O2 --profiling-funcs -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=2MB -sPTHREAD_POOL_SIZE=8"
 case "$WASM_PROFILE" in
   node) export LDFLAGS="$COMMON_LDFLAGS -sENVIRONMENT=node,worker -sNODERAWFS=1 -sEXIT_RUNTIME=1 --pre-js $ROOT/tools/wasm/node-env.pre.js" ;;
   *) echo "unknown WASM_PROFILE: $WASM_PROFILE" >&2; exit 2 ;;
