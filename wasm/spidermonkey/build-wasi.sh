@@ -7,7 +7,9 @@ export RUSTUP_HOME="$ROOT/tools/rustup" CARGO_HOME="$ROOT/tools/cargo"
 export RUSTC="$TC/rustc" CARGO="$TC/cargo" PATH="$TC:$PATH"
 export CC="$WASI/bin/clang --sysroot=$WASI/share/wasi-sysroot"
 export CXX="$WASI/bin/clang++ --sysroot=$WASI/share/wasi-sysroot"
-export AR="$WASI/bin/llvm-ar"
+export AR="$WASI/bin/llvm-ar" NM="$WASI/bin/llvm-nm" RANLIB="$WASI/bin/llvm-ranlib" OBJCOPY="$WASI/bin/llvm-objcopy" STRIP="$WASI/bin/llvm-strip"
+# wasi-sdk 24 ships no readelf; configure only needs it as a tool probe
+export READELF=/opt/homebrew/opt/llvm/bin/llvm-readelf
 export HOST_CC=/usr/bin/clang HOST_CXX=/usr/bin/clang++
 export MOZCONFIG="$ROOT/wasm/spidermonkey/mozconfig-wasi"
 export MOZ_NOSPAM=1 MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=none
