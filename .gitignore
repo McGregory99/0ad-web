@@ -1,0 +1,7 @@
+# Upstream 0 A.D. source checkout (pinned to tag v0.28.0, managed separately)
+upstream/
+# Game data copied from the official 0.28.0 macOS DMG (3.4 GB)
+data/
+# Raw command logs produced by workers
+runs/
+.DS_Store
