@@ -1,5 +1,5 @@
---- a/build/moz.configure/rust.configure	2026-11-06 22:08:21
-+++ b/build/moz.configure/rust.configure	2026-11-06 22:08:21
+--- a/build/moz.configure/rust.configure	2026-11-06 22:11:01
++++ b/build/moz.configure/rust.configure	2026-11-06 22:11:01
 @@ -410,6 +410,14 @@
              return narrowed[0].rust_target
  
@@ -7,10 +7,10 @@
 +
 +    # 0ad-web: the wasm build is linked by Emscripten with shared memory
 +    # (pthreads), so Rust's std must be built with atomics. Only the
-+    # wasm32-wasip1-threads std ships that way.
-+    if host_or_target.cpu == "wasm32" and host_or_target.os == "WASI" and any(
-+        c.rust_target == "wasm32-wasip1-threads" for c in candidates
-+    ):
++    # wasm32-wasip1-threads std ships that way. split_triplet() cannot parse
++    # that three-part triple, so it never appears in `candidates`: return it
++    # directly (the std must be installed: rustup target add wasm32-wasip1-threads).
++    if host_or_target.cpu == "wasm32" and host_or_target.os == "WASI":
 +        return "wasm32-wasip1-threads"
  
      rustc_target = find_candidate(candidates)
