@@ -21,6 +21,6 @@ export PKG_CONFIG_LIBDIR="$WP/lib/pkgconfig" PKG_CONFIG_PATH="$WP/lib/pkgconfig"
 # -matomics/-mbulk-memory: the engine links with shared memory (pthreads); every object must allow it.
 # SpiderMonkey itself stays single-threaded on wasi (no-op mutexes) and is only used from the main thread.
 export CFLAGS="-w -matomics -mbulk-memory -I$WP/include" CXXFLAGS="-w -matomics -mbulk-memory -I$WP/include" LDFLAGS="-L$WP/lib"
-export RUSTFLAGS="-C target-feature=+atomics,+bulk-memory"
+# Rust uses the wasm32-wasip1-threads std (built with atomics); see patches/RustWasiThreadsTarget.diff.
 cd "$ROOT/wasm/spidermonkey/mozjs-128.13.0"
 /opt/homebrew/bin/python3.12 ./mach build -j4

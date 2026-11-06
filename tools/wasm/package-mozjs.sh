@@ -8,7 +8,7 @@ D="$ROOT/wasm/spidermonkey/dist-wasm/lib"
 WASI="$ROOT/tools/wasi-sdk/bin"
 mkdir -p "$D"
 cp "$O/js/src/build/libjs_static.a" "$D/"
-cp "$O/wasm32-wasi/release/libjsrust.a" "$D/"
+cp "$O/wasm32-wasip1-threads/release/libjsrust.a" "$D/"
 # mfbt/mozglue/memory objects are built but not archived by mozbuild.
 rm -f "$D/libmozglue_extra.a"
 (cd "$O" && find mfbt mozglue memory -name '*.o' | sort | xargs "$WASI/llvm-ar" rcs "$D/libmozglue_extra.a")

@@ -19,10 +19,12 @@ int __wrap_clock_gettime(clockid_t id, struct timespec* ts) {
   return __real_clock_gettime(id, ts);
 }
 
-// wasi-libc exports `errno` as a plain (thread-local) variable; Emscripten uses
-// __errno_location(). Rust reads it only to build error messages.
+// wasi-libc exports `errno` as a thread-local variable; Emscripten uses
+// __errno_location(). With atomics enabled the wasi objects (and Rust's
+// wasip1-threads std) reference it as real TLS, so it must be _Thread_local.
+// It is NOT the Emscripten libc errno: Rust reads it only for error messages.
 #undef errno
-int errno;
+_Thread_local int errno;
 
 // wasi-libc provides arc4random_buf; Emscripten provides getentropy (max 256 bytes per call).
 void arc4random_buf(void* buf, size_t n) {

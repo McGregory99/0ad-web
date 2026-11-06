@@ -1,0 +1,197 @@
+diff --color -ruN a/build/premake/premake5.lua b/build/premake/premake5.lua
+--- a/build/premake/premake5.lua	2026-11-06 22:06:24
++++ b/build/premake/premake5.lua	2026-11-06 22:06:24
+@@ -1006,6 +1006,8 @@
+ 		table.insert(source_dirs, "lib/sysdep/arch/e2k");
+ 	elseif arch == "ppc64" then
+ 		table.insert(source_dirs, "lib/sysdep/arch/ppc64");
++	elseif arch == "wasm32" then
++		table.insert(source_dirs, "lib/sysdep/arch/wasm32");
+ 	end
+ 
+ 	-- OS-specific
+@@ -1019,7 +1021,7 @@
+ 	}
+ 	-- WebAssembly (Emscripten) is generated as "linux" but only shares the generic Unix code.
+ 	if arch == "wasm32" then
+-		sysdep_dirs[os.target()] = { "lib/sysdep/os/unix" }
++		sysdep_dirs[os.target()] = { "lib/sysdep/os/unix", "lib/sysdep/os/emscripten" }
+ 	end
+ 	for i,v in pairs(sysdep_dirs[os.target()]) do
+ 		table.insert(source_dirs, v);
+diff --color -ruN a/source/lib/sysdep/arch/wasm32/wasm32.cpp b/source/lib/sysdep/arch/wasm32/wasm32.cpp
+--- a/source/lib/sysdep/arch/wasm32/wasm32.cpp	1970-01-01 01:00:00
++++ b/source/lib/sysdep/arch/wasm32/wasm32.cpp	2026-11-06 22:06:24
+@@ -0,0 +1,15 @@
++/* Copyright (C) 2026 Wildfire Games.
++ * This file is part of 0 A.D. (browser port additions).
++ * Licensed under the same MIT terms as the rest of source/lib.
++ */
++
++// Routines specific to WebAssembly (wasm32).
++
++#include "precompiled.h"
++
++#include "lib/sysdep/cpu.h"
++
++const char* cpu_IdentifierString()
++{
++	return "wasm32";
++}
+diff --color -ruN a/source/lib/sysdep/os/emscripten/ecpu.cpp b/source/lib/sysdep/os/emscripten/ecpu.cpp
+--- a/source/lib/sysdep/os/emscripten/ecpu.cpp	1970-01-01 01:00:00
++++ b/source/lib/sysdep/os/emscripten/ecpu.cpp	2026-11-06 22:06:24
+@@ -0,0 +1,79 @@
++/* Copyright (C) 2026 Wildfire Games.
++ * This file is part of 0 A.D. (browser port additions).
++ * Licensed under the same MIT terms as the rest of source/lib.
++ */
++
++// Emscripten/browser implementation of os_cpu (no sysctl, no /proc).
++
++#include "precompiled.h"
++
++#include "lib/sysdep/os_cpu.h"
++#include "lib/bits.h"
++
++#include <emscripten/heap.h>
++#include <unistd.h>
++#ifdef __EMSCRIPTEN_PTHREADS__
++# include <emscripten/threading.h>
++#endif
++
++size_t os_cpu_NumProcessors()
++{
++	static size_t numProcessors;
++	if(numProcessors == 0)
++	{
++#ifdef __EMSCRIPTEN_PTHREADS__
++		const int cores = emscripten_num_logical_cores();
++		numProcessors = cores > 0 ? (size_t)cores : 1;
++#else
++		numProcessors = 1;
++#endif
++	}
++	return numProcessors;
++}
++
++uintptr_t os_cpu_ProcessorMask()
++{
++	static uintptr_t processorMask;
++	if(!processorMask)
++		processorMask = bit_mask<uintptr_t>(std::min<size_t>(os_cpu_NumProcessors(), sizeof(uintptr_t) * 8 - 1));
++	return processorMask;
++}
++
++size_t os_cpu_PageSize()
++{
++	static size_t pageSize;
++	if(!pageSize)
++		pageSize = (size_t)sysconf(_SC_PAGESIZE);
++	return pageSize;
++}
++
++size_t os_cpu_LargePageSize()
++{
++	return 0;
++}
++
++// Total memory the wasm heap may grow to, in MiB.
++size_t os_cpu_QueryMemorySize()
++{
++	return emscripten_get_heap_max() / MiB;
++}
++
++// Heap growth still possible, in MiB.
++size_t os_cpu_MemoryAvailable()
++{
++	const size_t max = emscripten_get_heap_max();
++	const size_t cur = emscripten_get_heap_size();
++	return (max > cur ? max - cur : 0) / MiB;
++}
++
++uintptr_t os_cpu_SetThreadAffinityMask(uintptr_t /*processorMask*/)
++{
++	return os_cpu_ProcessorMask();
++}
++
++Status os_cpu_CallByEachCPU(OsCpuCallback cb, uintptr_t cbData)
++{
++	for(size_t processor = 0; processor < os_cpu_NumProcessors(); processor++)
++		cb(processor, cbData);
++	return INFO::OK;
++}
+diff --color -ruN a/source/lib/sysdep/os/emscripten/emscripten.cpp b/source/lib/sysdep/os/emscripten/emscripten.cpp
+--- a/source/lib/sysdep/os/emscripten/emscripten.cpp	1970-01-01 01:00:00
++++ b/source/lib/sysdep/os/emscripten/emscripten.cpp	2026-11-06 22:06:24
+@@ -0,0 +1,45 @@
++/* Copyright (C) 2026 Wildfire Games.
++ * This file is part of 0 A.D. (browser port additions).
++ * Licensed under the same MIT terms as the rest of source/lib.
++ */
++
++// Emscripten/browser: executable path, thread names and directory watching.
++
++#include "precompiled.h"
++
++#include "lib/debug.h"
++#include "lib/sysdep/dir_watch.h"
++#include "lib/sysdep/sysdep.h"
++
++#ifdef __EMSCRIPTEN_PTHREADS__
++# include <emscripten/threading.h>
++#endif
++
++// There is no executable file in the browser. The engine derives the data
++// root from this path (binaries/system/<exe>), so return the virtual path
++// that the browser loader lays out in the in-memory filesystem
++// (Paths.cpp requires that this file exists).
++OsPath sys_ExecutablePathname()
++{
++	return OsPath("/0ad/binaries/system/pyrogenesis");
++}
++
++void debug_SetThreadName(const char* name)
++{
++#ifdef __EMSCRIPTEN_PTHREADS__
++	emscripten_set_thread_name(pthread_self(), name);
++#else
++	(void)name;
++#endif
++}
++
++// No file change notifications in the browser (hotloading is off).
++Status dir_watch_Add(const OsPath&, PDirWatch&)
++{
++	return INFO::OK;
++}
++
++Status dir_watch_Poll(DirWatchNotifications&)
++{
++	return INFO::OK;
++}
+diff --color -ruN a/source/ps/GameSetup/GameSetup.cpp b/source/ps/GameSetup/GameSetup.cpp
+--- a/source/ps/GameSetup/GameSetup.cpp	2026-11-06 22:06:24
++++ b/source/ps/GameSetup/GameSetup.cpp	2026-11-06 22:06:24
+@@ -122,7 +122,7 @@
+ #include <utility>
+ 
+ 
+-#if !(OS_WIN || OS_MACOSX || OS_ANDROID) // assume all other platforms use X11 for wxWidgets
++#if !(OS_WIN || OS_MACOSX || OS_ANDROID || defined(__EMSCRIPTEN__)) // assume all other platforms use X11 for wxWidgets
+ #define MUST_INIT_X11 1
+ #include <X11/Xlib.h>
+ #else
+diff --color -ruN a/source/ps/strings/StringBuilder.h b/source/ps/strings/StringBuilder.h
+--- a/source/ps/strings/StringBuilder.h	2026-11-06 22:06:24
++++ b/source/ps/strings/StringBuilder.h	2026-11-06 22:06:24
+@@ -29,7 +29,8 @@
+ #if defined(__cpp_lib_to_chars)
+ #include <charconv>
+ #else
+-#include <fmt/core.h>
++// format.h, not core.h: format_to_n(char*) needs iterator_buffer::flush(), defined in format.h.
++#include <fmt/format.h>
+ #endif
+ 
+ namespace PS
