@@ -20,11 +20,12 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 | ID | Task | Specs | Route | Depends | Status | Evidence |
 |----|------|-------|-------|---------|--------|----------|
 | T0.1 | Native build + reference replay + native replay time | S1,S6 | pi `t01` | — | in progress | `runbooks/T0.1-*.md` → `reports/T0.1.md` |
-| T0.2 | SpiderMonkey 128 → wasm32 (Emscripten, no JIT) | S1,S6 | pi (runbook pending) | T0.1 | pending | |
+| T0.2 | SpiderMonkey 128 → wasm (no JIT). E1 = wasm32-wasi via wasi-sdk 24 + Rust 1.79, portable baseline interpreter | S1,S6 | pi `t02` | — | in progress (E1) | `runbooks/T0.2-E1-*.md` → `reports/T0.2-E1.md` |
 | T0.3 | Headless wasm replay in Node: hash equality + speed ratio (GATE) | S6 | pi (runbook pending) | T0.2 | pending | |
+| T1.0 | Local emsdk + pthread smoke test in Node | S1 | pi `t10` | — | in progress | `runbooks/T1.0-*.md` → `reports/T1.0.md` |
 | T1.1 | Emscripten premake toolchain (pthreads, PROXY_TO_PTHREAD, OffscreenCanvas, 4 GB, wasm EH) | S1 | pi | T0.1 | pending | |
 | T1.2 | Third-party libs → wasm (zlib, png, xml2, freetype, ogg/vorbis, fmt, sodium, ICU) | S1 | pi, one per lib | T1.1 | pending | |
-| T1.3 | Remove/stub Atlas, FCollada, nvtt, miniupnpc, gloox, curl/mod.io, crash handler | S1 | pi | T0.1 | pending | |
+| T1.3 | Remove/stub Atlas, FCollada, nvtt, miniupnpc, gloox, curl/mod.io, crash handler (T1.3a = read-only inventory) | S1 | pi `t13` | — | in progress (T1.3a) | `runbooks/T1.3-*.md` → `reports/T1.3a.md` |
 | T1.4 | `lib/sysdep` emscripten platform | S1 | pi | T1.1 | pending | |
 | T2.1 | SDL2 window/input in browser | S1 | pi | T1.4 | pending | |
 | T2.2 | Main loop on pthread + OffscreenCanvas | S1 | pi | T1.1 | pending | |
@@ -34,7 +35,7 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 | T3.2 | Shaders → GLSL ES 3.00 | S1 | pi | T3.1 | pending | |
 | T3.3 | DDS via S3TC extension; KTX2/Basis later | S1 | pi | T3.1 | pending | |
 | T3.4 | Web graphics defaults | S1 | pi | T3.1 | pending | |
-| T4.1 | Offline chunking of public.zip + manifest | S1 | pi | T0.1 | pending | |
+| T4.1 | Zip manifest (per-file data offsets) for HTTP Range streaming — replaces repacking | S1 | pi `t41` | — | in progress | `runbooks/T4.1-*.md` → `reports/T4.1.md` |
 | T4.2 | Streaming VFS + OPFS cache | S1 | pi | T4.1,T1.4 | pending | |
 | T4.3 | Light data profile | S7 | pi | T4.1 | pending | |
 | T4.4 | Hosting with COOP/COEP | S1 | pi | T4.1 | pending | |
@@ -58,3 +59,5 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 - **L5** (2026-11-06, supervisor): repo created; upstream cloned at tag `v0.28.0` (`a2cae4d6`, LFS skipped, 254 MB) into `upstream/`; real data copied from DMG into `data/mods/` (public 3.3 GB, mod 89 MB). Upstream data folders are LFS pointers, so T0.1 step 1 links the real data. Estimate given: MVP 4–6 weeks wall-clock with unlimited strong agents; with a local 35B-A3B worker expect it to be slower and to need more supervisor rewrites of runbooks.
 - **L6** (2026-11-06, supervisor): T0.1 runbook written; launching pi worker `t01` in a Herdr pane.
 - **L7** (2026-11-06, supervisor): plain `pi` fails to start (gentle-pi extension `quiet-tools.ts`: `createCodemodeExtension is not a function` with pi 0.87.1). Workers start with `pi -ne` (no extensions); Engram mirroring is done by the supervisor. `t01` running in Herdr pane `w6:p4` on `qwen3.6-35b-a3b`.
+- **L8** (2026-11-06, user): "quiero que le des una buena tirada sin mi intervencion. Hasta cuando podras avanzar sin supervisarme? te autorizo a lanzar mas agentes de pi si quieres"
+- **L9** (2026-11-06, supervisor): wave 2 launched in parallel with T0.1: t10 (T1.0 emsdk), t13 (T1.3a inventory), t41 (T4.1 manifest), t02 (T0.2-E1 SpiderMonkey wasi). Design decision T4.1: keep `public.zip` intact and stream single entries with HTTP Range + manifest instead of repacking. Design decision T0.2: start with Mozilla's supported wasm32-wasi target (portable baseline interpreter); linking into Emscripten (libc/libc++ and atomics compatibility) is the next experiment E2. Risk noted: native T0.1 uses Homebrew Rust 1.99 with mozjs 128 (may need the private 1.79 toolchain).
