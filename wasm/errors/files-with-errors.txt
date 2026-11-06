@@ -1,14 +1,4 @@
- 492 lib/sysdep/arch.h
- 243 ../../../../wasm/spidermonkey/mozjs-128.13.0/obj-wasi/dist/include/js-config.h
-  77 ps/CLogger.h
-  52 scriptinterface/FunctionWrapper.h
-  48 ps/containers/StaticVector.h
-   6 lib/posix/posix_aio.h
+   5 lib/posix/posix_aio.h
+   5 lib/file/io/io.cpp
    5 lib/external_libraries/curl.h
    2 renderer/backend/gl/Texture.cpp
-   1 lib/sysdep/os/linux/ldbg.cpp
-   1 lib/sysdep/arch.h   h#88 ii:er | r88o#tr t:ee  ctc"erarchtrit3oreuuerctu rre:re error: "a  orre"architecture not correctly detected (either none or multiple ARCH_* defined)"n
-   1 lib/precompiled.herror: 
-   1 lib/code_annotation.h:error: "architecture not correctly detected (either none or multiple ARCH_* defined)"
-   1 65:31error: 31:
-   1 :r    error: 

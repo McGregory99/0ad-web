@@ -1,7 +1,2 @@
-   7 lib
-   2 ps
-   1 scriptinterface
+   3 lib
    1 renderer
-   1 65:31error:
-   1 ..
-   1 :r

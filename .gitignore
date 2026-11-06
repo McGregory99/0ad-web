@@ -23,3 +23,5 @@ wasm/deps/
 wasm/inventory/shaders/
 tools/eval/
 /wasm/e2/
+/wasm/stubs/curl/lib/
+/wasm/stubs/curl/*.o

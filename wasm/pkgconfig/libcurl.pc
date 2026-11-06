@@ -1,0 +1,6 @@
+stub=${pcfiledir}/../stubs/curl
+Name: libcurl
+Description: libcurl stub for the wasm build (all network calls fail)
+Version: 8.7.1
+Cflags: -I${stub}/include
+Libs: -L${stub}/lib -lcurl

@@ -1,9 +1,3 @@
- 492 error: "architecture not correctly detected (either none or multiple ARCH_* defined)"
- 243 error: "SpiderMonkey was configured with --disable-debug, so DEBUG must be not defined when including this header"
- 189 fatal error: 'X' file not found
-   2 error: use of undeclared identifier 'X'
-   1 65:31error: 31:
-   1 ../../../source/lib/sysdep/arch.h: error: "architecture not correctly detected (either none or multiple ARCH_* defined)":388:3 ../../../source/lib/precompiled.herror: 
-   1 :r    error: 
-   1  | arc88h# | c../../../source/lib/sysdep/arch.h   h#88 ii:er | r88o#tr t:ee  ctc"erarchtrit3oreuuerctu rre:re error: "a  orre"architecture not correctly detected (either none or multiple ARCH_* defined)"n
-   1    er3e"architecture not correctly detected (either none or multiple ARCH_* defined)"In file included from ../../../source/lib/code_annotation.h:error: "architecture not correctly detected (either none or multiple ARCH_* defined)"
+   7 error: use of undeclared identifier 'X'
+   5 fatal error: 'X' file not found
+   5 error: field has incomplete type 'X'
