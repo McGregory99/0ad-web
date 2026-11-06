@@ -1,0 +1,39 @@
+diff --color -ru a/source/lib/config2.h b/source/lib/config2.h
+--- a/source/lib/config2.h	2026-11-06 21:57:43
++++ b/source/lib/config2.h	2026-11-06 21:57:43
+@@ -56,7 +56,7 @@
+ // work around a bug introduced in Linux 2.6.38
+ // (http://www.wildfiregames.com/forum/index.php?showtopic=14561&view=findpost&p=217710)
+ // OpenBSD doesn't provide aio.h so we disable its use
+-# if OS_LINUX || OS_OPENBSD
++# if OS_LINUX || OS_OPENBSD || defined(__EMSCRIPTEN__)
+ #  define CONFIG2_FILE_ENABLE_AIO 0
+ # else
+ #  define CONFIG2_FILE_ENABLE_AIO 1
+diff --color -ru a/source/lib/posix/posix_aio.h b/source/lib/posix/posix_aio.h
+--- a/source/lib/posix/posix_aio.h	2026-11-06 21:57:43
++++ b/source/lib/posix/posix_aio.h	2026-11-06 21:57:43
+@@ -34,6 +34,9 @@
+ // Android (and Emscripten) don't provide aio.h. We don't actually use aio on Linuxes (see
+ // CONFIG2_FILE_ENABLE_AIO) but we use its symbols and structs, so define
+ // them here
++# if defined(__EMSCRIPTEN__)
++#  include <signal.h> // struct sigevent
++# endif
+ # if OS_OPENBSD
+ // OpenBSD 5.1 (latest version at time of writing) has no struct sigevent defined,
+ // so we do this here.
+diff --color -ru a/source/renderer/backend/gl/Texture.cpp b/source/renderer/backend/gl/Texture.cpp
+--- a/source/renderer/backend/gl/Texture.cpp	2026-11-06 21:57:43
++++ b/source/renderer/backend/gl/Texture.cpp	2026-11-06 21:57:43
+@@ -213,8 +213,8 @@
+ 			break;
+ #if CONFIG2_GLES
+ 		// GLES requires pixel type == UNSIGNED_SHORT or UNSIGNED_INT for depth.
+-		case Format::D16_UNORM: FALLTHROUGH;
+-		case Format::D24_UNORM: FALLTHROUGH;
++		case Format::D16_UNORM: [[fallthrough]];
++		case Format::D24_UNORM: [[fallthrough]];
+ 		case Format::D32_SFLOAT:
+ 			internalFormat = GL_DEPTH_COMPONENT;
+ 			pixelFormat = GL_DEPTH_COMPONENT;
