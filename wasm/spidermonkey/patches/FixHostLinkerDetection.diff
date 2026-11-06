@@ -1,0 +1,19 @@
+--- a/build/moz.configure/toolchain.configure	2026-11-06 20:54:17
++++ b/build/moz.configure/toolchain.configure	2026-11-06 20:54:17
+@@ -1906,7 +1906,15 @@
+                 kind = "ld64"
+ 
+             elif retcode != 0:
+-                return None
++                # Apple ld-prime (Xcode 15+) ignores LD_PRINT_OPTIONS and rejects
++                # --version; detect it through `-Wl,-v` instead.
++                retcode2, stdout2, stderr2 = get_cmd_output(
++                    *(cmd_base + linker_flag + ["-Wl,-v"]), env=env
++                )
++                if retcode2 in (0, 1) and "@(#)PROGRAM:ld" in (stdout2 + stderr2):
++                    kind = "ld64"
++                else:
++                    return None
+ 
+             elif "mold" in stdout:
+                 kind = "mold"
