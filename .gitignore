@@ -5,3 +5,10 @@ data/
 # Raw command logs produced by workers
 runs/
 .DS_Store
+# Local Emscripten SDK and build outputs
+tools/emsdk/
+tools/smoke/*.js
+tools/smoke/*.wasm
+# Generated streaming manifests
+web-data/
+__pycache__/
