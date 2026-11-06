@@ -34,7 +34,7 @@ int main() {
       "let units = []; for (let i = 0; i < 2000; i++) units.push(new Unit(i));\n"
       "let map = new Map(); let acc = 0;\n"
       "for (let t = 0; t < 1500; t++) { for (const u of units) { u.step(t); acc = (acc + u.pos.x * 3 + u.pos.y) % 1000003; } map.set(t % 100, acc); }\n"
-      "let hp = 0; for (const u of units) hp += u.hp; [1 + 2 * 3, acc, hp, map.size].join(',')"; for (let i = 0; i < 1000000; i++) s = (s + i * 7) % 1000003; [1 + 2 * 3, s].join(',')";
+      "let hp = 0; for (const u of units) hp += u.hp; [1 + 2 * 3, acc, hp, map.size].join(',')";
     JS::CompileOptions copts(cx);
     copts.setFileAndLine("hello.js", 1);
     JS::SourceText<mozilla::Utf8Unit> source;
