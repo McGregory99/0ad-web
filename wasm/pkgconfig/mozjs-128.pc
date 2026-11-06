@@ -1,6 +1,7 @@
 objdir=${pcfiledir}/../spidermonkey/mozjs-128.13.0/obj-wasi
+libdir=${pcfiledir}/../spidermonkey/dist-wasm/lib
 Name: mozjs-128
-Description: SpiderMonkey 128 for wasm (0ad-web, experimental)
+Description: SpiderMonkey 128 for wasm (0ad-web, experimental; run tools/wasm/package-mozjs.sh first)
 Version: 128.13.0
 Cflags: -I${objdir}/dist/include
-Libs: -L${objdir}/js/src/build -L${objdir}/dist/lib -ljs_static -ljsrust
+Libs: -L${libdir} -ljs_static -lmozglue_extra -ljsrust -lwasi_z -lwasi_compat -Wl,--wrap=clock_gettime

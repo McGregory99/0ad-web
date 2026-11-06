@@ -1,0 +1,34 @@
+diff --color -ru a/build/premake/premake5.lua b/build/premake/premake5.lua
+--- a/build/premake/premake5.lua	2026-11-06 22:00:23
++++ b/build/premake/premake5.lua	2026-11-06 22:00:23
+@@ -176,8 +176,10 @@
+ 
+ -- Set up the Workspace
+ workspace "pyrogenesis"
+-targetdir(rootdir.."/binaries/system")
+-libdirs(rootdir.."/binaries/system")
++-- WebAssembly output gets its own folder so native and wasm libraries never mix.
++system_dir = (arch == "wasm32") and "/binaries/system-wasm" or "/binaries/system"
++targetdir(rootdir..system_dir)
++libdirs(rootdir..system_dir)
+ location(_OPTIONS["outpath"])
+ configurations { "Release", "Debug" }
+ startproject "pyrogenesis"
+@@ -381,7 +383,7 @@
+ 				}
+ 			end
+ 
+-			if os.istarget("linux") or os.istarget("bsd") then
++			if (os.istarget("linux") or os.istarget("bsd")) and arch ~= "wasm32" then
+ 				buildoptions { "-fPIC" }
+ 				if next(sanitizers) == nil then
+ 					linkoptions { "-Wl,--no-undefined", "-Wl,--as-needed", "-Wl,-z,relro" }
+@@ -459,7 +461,7 @@
+ 			defines { "INSTALLED_LIBDIR=" .. _OPTIONS["libdir"] }
+ 		end
+ 
+-		if os.istarget("linux") or os.istarget("bsd") then
++		if (os.istarget("linux") or os.istarget("bsd")) and arch ~= "wasm32" then
+ 			-- To use our local shared libraries, they need to be found in the
+ 			-- runtime dynamic linker path. Add their path to -rpath.
+ 			if _OPTIONS["libdir"] then

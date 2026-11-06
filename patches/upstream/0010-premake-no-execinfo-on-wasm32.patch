@@ -1,0 +1,12 @@
+diff --color -ru a/build/premake/premake5.lua b/build/premake/premake5.lua
+--- a/build/premake/premake5.lua	2026-11-06 22:01:38
++++ b/build/premake/premake5.lua	2026-11-06 22:01:38
+@@ -157,7 +157,7 @@
+ local link_execinfo = false
+ if os.istarget("bsd") then
+ 	link_execinfo = true
+-elseif os.istarget("linux") then
++elseif os.istarget("linux") and arch ~= "wasm32" then
+ 	local _, link_errorCode = os.outputof(cc .. " ./tests/execinfo.c -o /dev/null")
+ 	if link_errorCode ~= 0 then
+ 		link_execinfo = true

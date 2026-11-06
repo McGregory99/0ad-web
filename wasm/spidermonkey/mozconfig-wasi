@@ -16,3 +16,4 @@ ac_add_options --enable-portable-baseline-interp-force
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-wasi
 mk_add_options AUTOCLOBBER=1
 # rev2: wasi zlib from wasm/deps/wasi-prefix
+# rev3: atomics + bulk-memory for shared-memory linking

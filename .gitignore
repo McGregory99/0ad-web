@@ -25,3 +25,4 @@ tools/eval/
 /wasm/e2/
 /wasm/stubs/curl/lib/
 /wasm/stubs/curl/*.o
+/wasm/spidermonkey/dist-wasm/
