@@ -22,9 +22,9 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 | T0.1 | Native build + reference replay + native replay time | S1,S6 | pi `t01` | — | in progress | `runbooks/T0.1-*.md` → `reports/T0.1.md` |
 | T0.2 | SpiderMonkey 128 → wasm (no JIT). E1 = wasm32-wasi via wasi-sdk 24 + Rust 1.79, portable baseline interpreter | S1,S6 | pi `t02` | — | in progress (E1) | `runbooks/T0.2-E1-*.md` → `reports/T0.2-E1.md` |
 | T0.3 | Headless wasm replay in Node: hash equality + speed ratio (GATE) | S6 | pi (runbook pending) | T0.2 | pending | |
-| T1.0 | Local emsdk + pthread smoke test in Node | S1 | pi `t10` | — | in progress | `runbooks/T1.0-*.md` → `reports/T1.0.md` |
-| T1.1 | Emscripten premake toolchain (pthreads, PROXY_TO_PTHREAD, OffscreenCanvas, 4 GB, wasm EH) | S1 | pi | T0.1 | pending | |
-| T1.2 | Third-party libs → wasm (zlib, png, xml2, freetype, ogg/vorbis, fmt, sodium, ICU) | S1 | pi, one per lib | T1.1 | pending | |
+| T1.0 | Local emsdk + pthread smoke test in Node | S1 | pi `t10` | — | done (verified) | `runbooks/T1.0-*.md` → `reports/T1.0.md` |
+| T1.1 | Emscripten premake toolchain (pthreads, PROXY_TO_PTHREAD, OffscreenCanvas, 4 GB, wasm EH) | S1 | pi `t10` | T0.2 headers, premake fix | blocked (premake reported `0.28.0`; fix in T0.1c) | `reports/T1.1-E1.md` |
+| T1.2 | Third-party libs → wasm (zlib, png, xml2, freetype, ogg/vorbis, fmt, sodium, ICU) | S1 | pi `t10` | — | done (verified: ports + libxml2/fmt/libsodium/enet in `wasm/deps/prefix`) | `reports/T1.2.md` |
 | T1.3 | Remove/stub Atlas, FCollada, nvtt, miniupnpc, gloox, curl/mod.io, crash handler (T1.3a = read-only inventory) | S1 | pi `t13` | — | in progress (T1.3a) | `runbooks/T1.3-*.md` → `reports/T1.3a.md` |
 | T1.4 | `lib/sysdep` emscripten platform | S1 | pi | T1.1 | pending | |
 | T2.1 | SDL2 window/input in browser | S1 | pi | T1.4 | pending | |
@@ -35,7 +35,7 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 | T3.2 | Shaders → GLSL ES 3.00 | S1 | pi | T3.1 | pending | |
 | T3.3 | DDS via S3TC extension; KTX2/Basis later | S1 | pi | T3.1 | pending | |
 | T3.4 | Web graphics defaults | S1 | pi | T3.1 | pending | |
-| T4.1 | Zip manifest (per-file data offsets) for HTTP Range streaming — replaces repacking | S1 | pi `t41` | — | in progress | `runbooks/T4.1-*.md` → `reports/T4.1.md` |
+| T4.1 | Zip manifest (per-file data offsets) for HTTP Range streaming — replaces repacking | S1 | pi `t41` | — | done (verified) | `runbooks/T4.1-*.md` → `reports/T4.1.md` |
 | T4.2 | Streaming VFS + OPFS cache | S1 | pi | T4.1,T1.4 | pending | |
 | T4.3 | Light data profile | S7 | pi | T4.1 | pending | |
 | T4.4 | Hosting with COOP/COEP | S1 | pi | T4.1 | pending | |
@@ -62,3 +62,4 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 - **L8** (2026-11-06, user): "quiero que le des una buena tirada sin mi intervencion. Hasta cuando podras avanzar sin supervisarme? te autorizo a lanzar mas agentes de pi si quieres"
 - **L9** (2026-11-06, supervisor): wave 2 launched in parallel with T0.1: t10 (T1.0 emsdk), t13 (T1.3a inventory), t41 (T4.1 manifest), t02 (T0.2-E1 SpiderMonkey wasi). Design decision T4.1: keep `public.zip` intact and stream single entries with HTTP Range + manifest instead of repacking. Design decision T0.2: start with Mozilla's supported wasm32-wasi target (portable baseline interpreter); linking into Emscripten (libc/libc++ and atomics compatibility) is the next experiment E2. Risk noted: native T0.1 uses Homebrew Rust 1.99 with mozjs 128 (may need the private 1.79 toolchain).
 - **L10** (2026-11-06, supervisor): T1.0 done (emsdk 6.0.13, pthread smoke OK, re-verified). T4.1 done (manifest tool, 52,829 entries; zips are stored/method 0 → no inflate needed in browser; independent 300-entry CRC check OK). T1.3a done after supervisor runbook fix (escaped pipes). Native T0.1 blocked on FCollada needing `svn` → T0.1b builds cxxtest, premake and SpiderMonkey individually with private Rust 1.79. T0.2-E1 blocked on host linker detection (Apple ld-prime rejects `--version`) → supervisor patch `wasm/spidermonkey/patches/FixHostLinkerDetection.diff`, retry E1b. t10 on T1.2, t41 on T3.0.
+- **L11** (2026-11-06, supervisor): T3.0 + T3.0b done: GL backend ~6,290 lines, `CONFIG2_GLES` (ES 2.0 via glad gles2) in 17 files; all 4 compute shaders (downscale, FSR, RCAS, GPU skinning) are gated by `capabilities.computeShaders` → WebGL2 backend reports false, no shader port needed for them. T1.4a done except Step 5 (runbook grep bug, re-run by t13). Root cause of premake `0.28.0`: premake's build runs `git describe` and finds the enclosing 0 A.D. tag; fix = rebuild with `GIT_DIR=/nonexistent` (reads `git-tags.txt` = v5.0.0-beta7) → `runbooks/T0.1c-*.md` (also exports `CBINDGEN` for native SpiderMonkey). SpiderMonkey wasi attempt 4 passed configure and started compiling; failed on missing `zlib.h` (standalone js always uses system zlib) → `runbooks/T0.2-E1e-wasi-zlib.md` builds zlib 1.3.2 with wasi-sdk into `wasm/deps/wasi-prefix`; `build-wasi.sh` now points CFLAGS/LDFLAGS/PKG_CONFIG there.

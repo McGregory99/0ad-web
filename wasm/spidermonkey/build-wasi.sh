@@ -15,6 +15,9 @@ export HOST_CC=/usr/bin/clang HOST_CXX=/usr/bin/clang++
 export MOZCONFIG="$ROOT/wasm/spidermonkey/mozconfig-wasi"
 export MOZ_NOSPAM=1 MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=none
 export MOZBUILD_STATE_PATH="$ROOT/wasm/spidermonkey/mozbuild-state"
-export CFLAGS="-w" CXXFLAGS="-w"
+# zlib built for wasi by runbook T0.2-E1e (js standalone always uses system zlib)
+WP="$ROOT/wasm/deps/wasi-prefix"
+export PKG_CONFIG_LIBDIR="$WP/lib/pkgconfig" PKG_CONFIG_PATH="$WP/lib/pkgconfig"
+export CFLAGS="-w -I$WP/include" CXXFLAGS="-w -I$WP/include" LDFLAGS="-L$WP/lib"
 cd "$ROOT/wasm/spidermonkey/mozjs-128.13.0"
 /opt/homebrew/bin/python3.12 ./mach build -j4
