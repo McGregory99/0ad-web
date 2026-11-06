@@ -23,3 +23,7 @@ execute ONE runbook exactly as written and report what happened.
 - Never install software with `brew`, `pip`, or `npm` unless the runbook says so.
 - Long commands: always pipe output to the log file the runbook names and show only the tail.
 - Write reports in English.
+
+## Evidence in reports
+- Mark each claim as **observed** (you saw it in command output), **derived** (computed from observed output) or **inferred** (your guess). Paste the command output that supports observed claims.
+- "Not found" means only that your search found nothing; say which search you ran.
