@@ -1,0 +1,27 @@
+--- a/lib/sysdep/os/emscripten/emscripten.cpp	2026-11-06 22:17:52
++++ b/lib/sysdep/os/emscripten/emscripten.cpp	2026-11-06 22:17:52
+@@ -38,6 +38,24 @@
+ #endif
+ }
+ 
++// No native stack walking in wasm (like the Android/macOS stubs).
++void* debug_GetCaller(void* /*context*/, const wchar_t* /*lastFuncToSkip*/)
++{
++	return nullptr;
++}
++
++Status debug_DumpStack(wchar_t* /*buf*/, size_t /*max_chars*/, void* /*context*/,
++	const wchar_t* /*lastFuncToSkip*/)
++{
++	return ERR::NOT_SUPPORTED;
++}
++
++Status debug_ResolveSymbol(void* /*ptr_of_interest*/, wchar_t* /*sym_name*/, wchar_t* /*file*/,
++	int* /*line*/)
++{
++	return ERR::NOT_SUPPORTED;
++}
++
+ // No file change notifications in the browser (hotloading is off).
+ Status dir_watch_Add(const OsPath&, PDirWatch&)
+ {

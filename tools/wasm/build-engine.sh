@@ -23,6 +23,8 @@ set +e
 emmake make config=release -j6 "$@" > "$ROOT/runs/engine-make.log" 2>&1
 status=$?
 set -e
+# upstream/package.json declares "type": "module"; Emscripten's output is CommonJS.
+printf '{ "type": "commonjs" }\n' > "$ROOT/upstream/binaries/system-wasm/package.json"
 echo "make exit: $status (log: runs/engine-make.log)"
 grep -cE 'error:' "$ROOT/runs/engine-make.log" || true
 exit $status
