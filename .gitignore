@@ -12,3 +12,10 @@ tools/smoke/*.wasm
 # Generated streaming manifests
 web-data/
 __pycache__/
+# SpiderMonkey wasm experiment sources/outputs and private toolchains
+wasm/spidermonkey/mozjs-*
+wasm/spidermonkey/mozbuild-state/
+tools/wasi-sdk/
+tools/wasi-sdk.tar.gz
+tools/rustup/
+tools/cargo/
