@@ -13,12 +13,12 @@ addToLibrary({
 	// io::Issue (lib/file/io/io.cpp) sends every read here first. Data is fetched with HTTP
 	// Range requests in aligned blocks and kept in an in-memory LRU cache.
 	$ZeroADRemote: {
-		blockSize: 1 << 20,
+		blockSize: 256 << 10,
 		cacheLimit: 768 << 20,
 		cacheBytes: 0,
 		blocks: new Map(), // `${url}#${index}` -> Uint8Array, in LRU order
 		inflight: new Map(), // `${url}#${index}` -> Promise
-		stats: { reads: 0, cachedReads: 0, requests: 0, bytes: 0, ms: 0 },
+		stats: { reads: 0, cachedReads: 0, persistentHits: 0, requests: 0, bytes: 0, ms: 0 },
 		warnedPthread: false,
 		key(url, index) { return `${url}#${index}`; },
 		touch(key) {
@@ -37,8 +37,32 @@ addToLibrary({
 				ZeroADRemote.cacheBytes -= oldBlock.length;
 			}
 		},
-		// Fetch blocks [first, last] of a file with a single Range request.
+		// Persistent cache (Cache Storage): one entry per block, keyed by a synthetic URL that
+		// includes the file size, so a new archive version never reuses old blocks.
+		cachePromise: null,
+		persistent() {
+			if (!ZeroADRemote.cachePromise)
+				ZeroADRemote.cachePromise = (globalThis.caches ? caches.open('zeroad-blocks-v1') : Promise.reject())
+					.catch(() => null);
+			return ZeroADRemote.cachePromise;
+		},
+		cacheUrl(remote, index) { return `${remote.url}?size=${remote.size}&block=${index}&bs=${ZeroADRemote.blockSize}`; },
+		// Load blocks [first, last]: from Cache Storage when present, the rest from the network.
 		async fetchSpan(remote, first, last) {
+			const cache = await ZeroADRemote.persistent();
+			let missingFirst = first;
+			while (cache && missingFirst <= last) {
+				const hit = await cache.match(ZeroADRemote.cacheUrl(remote, missingFirst));
+				if (!hit)
+					break;
+				ZeroADRemote.store(ZeroADRemote.key(remote.url, missingFirst), new Uint8Array(await hit.arrayBuffer()));
+				ZeroADRemote.stats.persistentHits++;
+				++missingFirst;
+			}
+			if (missingFirst <= last)
+				await ZeroADRemote.fetchNetwork(remote, missingFirst, last, cache);
+		},
+		async fetchNetwork(remote, first, last, cache) {
 			const size = ZeroADRemote.blockSize;
 			const start = first * size;
 			const end = Math.min((last + 1) * size, remote.size) - 1;
@@ -53,9 +77,12 @@ addToLibrary({
 			stats.requests++;
 			stats.bytes += data.length;
 			stats.ms += performance.now() - t0;
-			for (let index = first; index <= last; ++index)
-				ZeroADRemote.store(ZeroADRemote.key(remote.url, index),
-					data.subarray((index - first) * size, Math.min((index - first + 1) * size, data.length)));
+			for (let index = first; index <= last; ++index) {
+				const block = data.slice((index - first) * size, Math.min((index - first + 1) * size, data.length));
+				ZeroADRemote.store(ZeroADRemote.key(remote.url, index), block);
+				// Fire and forget: a failed cache write (quota) only costs a later re-download.
+				cache?.put(ZeroADRemote.cacheUrl(remote, index), new Response(block)).catch(() => {});
+			}
 		},
 		async load(remote, first, last) {
 			// Group the missing blocks into contiguous spans, one request each.

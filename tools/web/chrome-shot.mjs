@@ -10,6 +10,7 @@
 //     key:<key>         press a key (DOM key name, e.g. Escape, Enter, a)
 //     move:<x>:<y>      move the mouse
 //     stats             log Module.remoteStats (remote file reads, requests, bytes)
+//     reload            reload the page (same profile: Cache Storage survives)
 //     fps:<s>           measure requestAnimationFrame intervals for s seconds (frames, fps, p50/p99/max ms)
 // Env CHROME_GPU=1 uses the real GPU (ANGLE Metal) instead of SwiftShader.
 // Writes <outdir>/console.log (console messages and exceptions, with seconds since start).
@@ -123,6 +124,9 @@ for (const step of script.split(',')) {
     await s('Input.dispatchKeyEvent', { type: 'keyDown', key: a });
     await s('Input.dispatchKeyEvent', { type: 'keyUp', key: a });
     log(`key ${a}`);
+  } else if (op === 'reload') {
+    await s('Page.reload', { ignoreCache: false });
+    log('reload');
   } else if (op === 'fps') {
     const expression = `new Promise((done) => {
       const times = []; let last = performance.now(); const end = last + ${Number(a) * 1000};
