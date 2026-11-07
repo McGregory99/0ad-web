@@ -10,6 +10,8 @@
 //     key:<key>         press a key (DOM key name, e.g. Escape, Enter, a)
 //     move:<x>:<y>      move the mouse
 //     stats             log Module.remoteStats (remote file reads, requests, bytes)
+//     fps:<s>           measure requestAnimationFrame intervals for s seconds (frames, fps, p50/p99/max ms)
+// Env CHROME_GPU=1 uses the real GPU (ANGLE Metal) instead of SwiftShader.
 // Writes <outdir>/console.log (console messages and exceptions, with seconds since start).
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
@@ -35,7 +37,9 @@ const server = spawn('node', [join(root, 'tools/spikes/serve.mjs'), dir, port], 
 const profile = mkdtempSync(join(tmpdir(), 'chrome-shot-'));
 const chrome = spawn(CHROME, [
   '--headless=new', `--user-data-dir=${profile}`, '--no-first-run', '--remote-debugging-port=0',
-  '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--window-size=1280,720', 'about:blank',
+  ...(process.env.CHROME_GPU === '1' ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist']
+    : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']),
+  '--window-size=1280,720', 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
 let cleaned = false;
@@ -119,6 +123,17 @@ for (const step of script.split(',')) {
     await s('Input.dispatchKeyEvent', { type: 'keyDown', key: a });
     await s('Input.dispatchKeyEvent', { type: 'keyUp', key: a });
     log(`key ${a}`);
+  } else if (op === 'fps') {
+    const expression = `new Promise((done) => {
+      const times = []; let last = performance.now(); const end = last + ${Number(a) * 1000};
+      const tick = (now) => { times.push(now - last); last = now;
+        if (now < end) requestAnimationFrame(tick);
+        else { times.sort((x, y) => x - y); const q = (p) => times[Math.min(times.length - 1, Math.floor(p * times.length))];
+          done(JSON.stringify({ frames: times.length, fps: +(times.length / ${Number(a)}).toFixed(1),
+            p50: +q(0.5).toFixed(1), p99: +q(0.99).toFixed(1), max: +times[times.length - 1].toFixed(1) })); } };
+      requestAnimationFrame(tick); })`;
+    const { result } = await s('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    log(`fps ${result.value}`);
   } else if (op === 'stats') {
     const { result } = await s('Runtime.evaluate', { expression: 'JSON.stringify(Module.remoteStats)', returnByValue: true });
     log(`stats ${result.value}`);
