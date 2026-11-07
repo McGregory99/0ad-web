@@ -29,7 +29,11 @@ case "$WASM_PROFILE" in
       --pre-js $ROOT/tools/wasm/web-env.pre.js --js-library $ROOT/tools/wasm/web-lib.js \
       --preload-file $W/pyrogenesis-exe-placeholder.txt@/0ad/binaries/system/pyrogenesis \
       --preload-file $D/config@/0ad/binaries/data/config \
-      --preload-file $D/mods/mod/mod.zip@/0ad/binaries/data/mods/mod/mod.zip" ;;
+      -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=zeroad_register_remote_files \
+      --preload-file $D/mods/mod/mod.zip@/0ad/binaries/data/mods/mod/mod.zip \
+      --preload-file $D/mods/public/mod.json@/0ad/binaries/data/mods/public/mod.json \
+      --preload-file $W/overlay/public@/0ad/binaries/data/mods/public \
+      --preload-file $ROOT/tools/emsdk/upstream/emscripten/cache/ports/icu/icu/source/data/in/icudt68l.dat@/icu/icudt68l.dat" ;;
   *) echo "unknown WASM_PROFILE: $WASM_PROFILE" >&2; exit 2 ;;
 esac
 # Both profiles write the same output file: remove it so make relinks with this profile's flags.
@@ -46,6 +50,12 @@ if [ "$WASM_PROFILE" = web ] && [ $status -eq 0 ]; then
   mkdir -p "$WEB"
   cp "$OUT/pyrogenesis" "$WEB/pyrogenesis.js"
   cp "$OUT/pyrogenesis.wasm" "$OUT/pyrogenesis.data" "$ROOT/tools/wasm/web/index.html" "$WEB/"
+  # public.zip is streamed with HTTP Range requests (see tools/wasm/web-lib.js), not preloaded.
+  PUBLIC_ZIP="$ROOT/upstream/binaries/data/mods/public/public.zip"
+  mkdir -p "$WEB/mods/public"
+  ln -sf "$(cd "$(dirname "$PUBLIC_ZIP")" && pwd -P)/public.zip" "$WEB/mods/public/public.zip"
+  printf '[{"path": "/0ad/binaries/data/mods/public/public.zip", "url": "mods/public/public.zip", "size": %s}]\n' \
+    "$(stat -f %z -L "$PUBLIC_ZIP")" > "$WEB/remote-files.json"
   echo "web build copied to $WEB"
 fi
 echo "make exit: $status (log: runs/engine-make.log)"

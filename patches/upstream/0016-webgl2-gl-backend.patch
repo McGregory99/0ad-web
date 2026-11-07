@@ -16,10 +16,37 @@ index 73b165eb..c680c292 100644
  	if (arb)
  	{
 diff --git a/source/renderer/backend/gl/DeviceCommandContext.cpp b/source/renderer/backend/gl/DeviceCommandContext.cpp
-index 92460302..b4c53faf 100644
+index 92460302..f9988828 100644
 --- a/source/renderer/backend/gl/DeviceCommandContext.cpp
 +++ b/source/renderer/backend/gl/DeviceCommandContext.cpp
-@@ -259,6 +259,11 @@ CDeviceCommandContext::CDeviceCommandContext(CDevice* device)
+@@ -133,6 +133,18 @@ void UploadDynamicBufferRegionImpl(
+ 	const CDeviceCommandContext::UploadBufferFunction& uploadFunction)
+ {
+ 	ENSURE(dataOffset < dataSize);
++#if defined(__EMSCRIPTEN__)
++	// WebGL has no buffer mapping: fill a CPU staging buffer and upload it with
++	// glBufferSubData. Orphaning with glBufferData would make WebGL allocate and
++	// zero the whole buffer on every upload, so the rest of the buffer is kept.
++	static_cast<void>(bufferSize);
++	static std::vector<u8> staging;
++	if (staging.size() < dataSize)
++		staging.resize(dataSize);
++	uploadFunction(staging.data());
++	glBufferSubDataARB(target, dataOffset, dataSize, staging.data());
++	ogl_WarnIfError();
++#else
+ 	// Tell the driver that it can reallocate the whole VBO
+ 	glBufferDataARB(target, bufferSize, nullptr, GL_DYNAMIC_DRAW);
+ 	ogl_WarnIfError();
+@@ -160,6 +172,7 @@ void UploadDynamicBufferRegionImpl(
+ 		// and hope it will eventually succeed
+ 		LOGMESSAGE("glUnmapBuffer failed, trying again...\n");
+ 	}
++#endif
+ }
+ 
+ /**
+@@ -259,6 +272,11 @@ CDeviceCommandContext::CDeviceCommandContext(CDevice* device)
  		// Currently we don't support upload buffers for GL.
  		if (type == CBuffer::Type::UPLOAD)
  			continue;
@@ -32,10 +59,39 @@ index 92460302..b4c53faf 100644
  		const GLuint handle = 0;
  		m_BoundBuffers[index].first = target;
 diff --git a/source/renderer/backend/gl/Texture.cpp b/source/renderer/backend/gl/Texture.cpp
-index 19c9e598..a529a0e1 100644
+index 19c9e598..af908f95 100644
 --- a/source/renderer/backend/gl/Texture.cpp
 +++ b/source/renderer/backend/gl/Texture.cpp
-@@ -211,10 +211,33 @@ std::unique_ptr<CTexture> CTexture::Create(
+@@ -59,7 +59,12 @@ GLint AddressModeToGLEnum(Sampler::AddressMode addressMode)
+ 	case Sampler::AddressMode::REPEAT: return GL_REPEAT;
+ 	case Sampler::AddressMode::MIRRORED_REPEAT: return GL_MIRRORED_REPEAT;
+ 	case Sampler::AddressMode::CLAMP_TO_EDGE: return GL_CLAMP_TO_EDGE;
++#if defined(__EMSCRIPTEN__)
++	// WebGL2 has no CLAMP_TO_BORDER (nor GL_TEXTURE_BORDER_COLOR).
++	case Sampler::AddressMode::CLAMP_TO_BORDER: return GL_CLAMP_TO_EDGE;
++#else
+ 	case Sampler::AddressMode::CLAMP_TO_BORDER: return GL_CLAMP_TO_BORDER;
++#endif
+ 	}
+ 	return GL_REPEAT;
+ }
+@@ -152,6 +157,7 @@ std::unique_ptr<CTexture> CTexture::Create(
+ 		glTexParameterf(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAnisotropy);
+ 	}
+ 
++#if !defined(__EMSCRIPTEN__)
+ 	if (defaultSamplerDesc.addressModeU == Sampler::AddressMode::CLAMP_TO_BORDER ||
+ 		defaultSamplerDesc.addressModeV == Sampler::AddressMode::CLAMP_TO_BORDER ||
+ 		defaultSamplerDesc.addressModeW == Sampler::AddressMode::CLAMP_TO_BORDER)
+@@ -170,6 +176,7 @@ std::unique_ptr<CTexture> CTexture::Create(
+ 		}
+ 		glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, borderColor.AsFloatArray().data());
+ 	}
++#endif
+ 
+ 	ogl_WarnIfError();
+ 
+@@ -211,10 +218,33 @@ std::unique_ptr<CTexture> CTexture::Create(
  			pixelFormat = GL_LUMINANCE;
  			pixelType = GL_UNSIGNED_BYTE;
  			break;

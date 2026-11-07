@@ -1,0 +1,38 @@
+diff --git a/source/lib/file/io/io.cpp b/source/lib/file/io/io.cpp
+index e74085f5..cdb64aee 100644
+--- a/source/lib/file/io/io.cpp
++++ b/source/lib/file/io/io.cpp
+@@ -33,6 +33,11 @@ static const StatusDefinition ioStatusDefinitions[] = {
+ };
+ STATUS_ADD_DEFINITIONS(ioStatusDefinitions);
+ 
++#if defined(__EMSCRIPTEN__)
++// Implemented in tools/wasm/{web,node}-lib.js.
++extern "C" ssize_t zeroad_remote_pread(int fd, void* buffer, size_t size, double offset);
++#endif
++
+ namespace io {
+ 
+ // this is just a thin wrapper on top of lowio and POSIX aio.
+@@ -51,6 +56,21 @@ Status Issue(aiocb& cb, [[maybe_unused]] size_t queueDepth)
+ 	else
+ #endif
+ 	{
++#if defined(__EMSCRIPTEN__)
++		// Files registered as remote (streamed from the web server with HTTP Range requests)
++		// are read by the JS side; it returns -2 for ordinary files.
++		if (cb.aio_lio_opcode != LIO_WRITE)
++		{
++			const ssize_t remoteBytes = zeroad_remote_pread(cb.aio_fildes, (void*)cb.aio_buf, cb.aio_nbytes, static_cast<double>(cb.aio_offset));
++			if (remoteBytes != -2)
++			{
++				if (remoteBytes < 0)
++					WARN_RETURN(ERR::IO);
++				cb.aio_nbytes = static_cast<size_t>(remoteBytes);
++				return INFO::OK;
++			}
++		}
++#endif
+ #if OS_WIN
+ 		// sizeof(long) == 4 on Windows so we can't use lseek.
+ 		ENSURE(_lseeki64(cb.aio_fildes, cb.aio_offset, SEEK_SET) == cb.aio_offset);

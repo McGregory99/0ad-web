@@ -9,6 +9,7 @@
 //     click:<x>:<y>     left click at CSS pixel (x, y)
 //     key:<key>         press a key (DOM key name, e.g. Escape, Enter, a)
 //     move:<x>:<y>      move the mouse
+//     stats             log Module.remoteStats (remote file reads, requests, bytes)
 // Writes <outdir>/console.log (console messages and exceptions, with seconds since start).
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
@@ -118,6 +119,9 @@ for (const step of script.split(',')) {
     await s('Input.dispatchKeyEvent', { type: 'keyDown', key: a });
     await s('Input.dispatchKeyEvent', { type: 'keyUp', key: a });
     log(`key ${a}`);
+  } else if (op === 'stats') {
+    const { result } = await s('Runtime.evaluate', { expression: 'JSON.stringify(Module.remoteStats)', returnByValue: true });
+    log(`stats ${result.value}`);
   } else throw new Error(`unknown step ${step}`);
 }
 cleanup();
