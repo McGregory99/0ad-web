@@ -1,1 +1,1 @@
-   5 curl/curl.h
+   1 gloox/client.h

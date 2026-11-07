@@ -1,3 +1,1 @@
-   7 error: use of undeclared identifier 'X'
-   5 fatal error: 'X' file not found
-   5 error: field has incomplete type 'X'
+   1 fatal error: 'X' file not found

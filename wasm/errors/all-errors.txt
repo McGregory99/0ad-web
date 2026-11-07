@@ -1,17 +1,1 @@
-../../../source/lib/posix/posix_aio.h:59:18: error: field has incomplete type 'struct sigevent'
-../../../source/lib/external_libraries/curl.h:50:10: fatal error: 'curl/curl.h' file not found
-../../../source/lib/external_libraries/curl.h:50:10: fatal error: 'curl/curl.h' file not found
-../../../source/lib/posix/posix_aio.h:59:18: error: field has incomplete type 'struct sigevent'
-../../../source/lib/file/io/io.cpp:47:53: error: use of undeclared identifier 'aio_write'
-../../../source/lib/file/io/io.cpp:47:69: error: use of undeclared identifier 'aio_read'
-../../../source/lib/file/io/io.cpp:82:19: error: use of undeclared identifier 'aio_suspend'
-../../../source/lib/file/io/io.cpp:90:19: error: use of undeclared identifier 'aio_error'
-../../../source/lib/file/io/io.cpp:92:30: error: use of undeclared identifier 'aio_return'
-../../../source/lib/posix/posix_aio.h:59:18: error: field has incomplete type 'struct sigevent'
-../../../source/lib/external_libraries/curl.h:50:10: fatal error: 'curl/curl.h' file not found
-../../../source/lib/posix/posix_aio.h:59:18: error: field has incomplete type 'struct sigevent'
-../../../source/lib/external_libraries/curl.h:50:10: fatal error: 'curl/curl.h' file not found
-../../../source/lib/external_libraries/curl.h:50:10: fatal error: 'curl/curl.h' file not found
-../../../source/lib/posix/posix_aio.h:59:18: error: field has incomplete type 'struct sigevent'
-../../../source/renderer/backend/gl/Texture.cpp:216:27: error: use of undeclared identifier 'FALLTHROUGH'
-../../../source/renderer/backend/gl/Texture.cpp:217:27: error: use of undeclared identifier 'FALLTHROUGH'
+../../../source/lib/external_libraries/gloox.h:41:10: fatal error: 'gloox/client.h' file not found
