@@ -1,0 +1,74 @@
+diff --git a/source/renderer/backend/gl/Device.cpp b/source/renderer/backend/gl/Device.cpp
+index 73b165eb..c680c292 100644
+--- a/source/renderer/backend/gl/Device.cpp
++++ b/source/renderer/backend/gl/Device.cpp
+@@ -351,10 +351,12 @@ std::unique_ptr<IDevice> CDevice::Create(SDL_Window* window, const bool arb)
+ 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+ 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+ 
++#if !defined(__EMSCRIPTEN__)
+ 	glEnable(GL_TEXTURE_2D);
+ 	// glEnable(GL_TEXTURE_2D) is deprecated and might trigger an error. But we
+ 	// still support pre 2.0 drivers pretending to support 2.0.
+ 	ogl_SquelchError(GL_INVALID_ENUM);
++#endif
+ 
+ 	if (arb)
+ 	{
+diff --git a/source/renderer/backend/gl/DeviceCommandContext.cpp b/source/renderer/backend/gl/DeviceCommandContext.cpp
+index 92460302..b4c53faf 100644
+--- a/source/renderer/backend/gl/DeviceCommandContext.cpp
++++ b/source/renderer/backend/gl/DeviceCommandContext.cpp
+@@ -259,6 +259,11 @@ CDeviceCommandContext::CDeviceCommandContext(CDevice* device)
+ 		// Currently we don't support upload buffers for GL.
+ 		if (type == CBuffer::Type::UPLOAD)
+ 			continue;
++#if CONFIG2_GLES
++		// Uniform buffers are not used on GLES.
++		if (type == CBuffer::Type::UNIFORM)
++			continue;
++#endif
+ 		const GLenum target = BufferTypeToGLTarget(type);
+ 		const GLuint handle = 0;
+ 		m_BoundBuffers[index].first = target;
+diff --git a/source/renderer/backend/gl/Texture.cpp b/source/renderer/backend/gl/Texture.cpp
+index 19c9e598..a529a0e1 100644
+--- a/source/renderer/backend/gl/Texture.cpp
++++ b/source/renderer/backend/gl/Texture.cpp
+@@ -211,10 +211,33 @@ std::unique_ptr<CTexture> CTexture::Create(
+ 			pixelFormat = GL_LUMINANCE;
+ 			pixelType = GL_UNSIGNED_BYTE;
+ 			break;
+-#if CONFIG2_GLES
++#if CONFIG2_GLES && defined(__EMSCRIPTEN__)
++		// WebGL2 (GLES 3.0) rejects unsized depth formats, so use the sized
++		// GLES 3.0 ones. Our glad header is GLES 2 only, hence the raw values.
++		case Format::D16_UNORM:
++			internalFormat = 0x81A5; // GL_DEPTH_COMPONENT16
++			pixelFormat = GL_DEPTH_COMPONENT;
++			pixelType = GL_UNSIGNED_SHORT;
++			break;
++		case Format::D24_UNORM:
++			internalFormat = 0x81A6; // GL_DEPTH_COMPONENT24
++			pixelFormat = GL_DEPTH_COMPONENT;
++			pixelType = GL_UNSIGNED_INT;
++			break;
++		case Format::D32_SFLOAT:
++			internalFormat = 0x8CAC; // GL_DEPTH_COMPONENT32F
++			pixelFormat = GL_DEPTH_COMPONENT;
++			pixelType = GL_FLOAT;
++			break;
++		case Format::D24_UNORM_S8_UINT:
++			internalFormat = 0x88F0; // GL_DEPTH24_STENCIL8
++			pixelFormat = 0x84F9; // GL_DEPTH_STENCIL
++			pixelType = 0x84FA; // GL_UNSIGNED_INT_24_8
++			break;
++#elif CONFIG2_GLES
+ 		// GLES requires pixel type == UNSIGNED_SHORT or UNSIGNED_INT for depth.
+-		case Format::D16_UNORM: FALLTHROUGH;
+-		case Format::D24_UNORM: FALLTHROUGH;
++		case Format::D16_UNORM: [[fallthrough]];
++		case Format::D24_UNORM: [[fallthrough]];
+ 		case Format::D32_SFLOAT:
+ 			internalFormat = GL_DEPTH_COMPONENT;
+ 			pixelFormat = GL_DEPTH_COMPONENT;

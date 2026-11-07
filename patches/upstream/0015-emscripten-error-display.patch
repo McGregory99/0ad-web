@@ -1,0 +1,32 @@
+diff --git a/source/lib/debug.cpp b/source/lib/debug.cpp
+index 71e5572b..66936773 100644
+--- a/source/lib/debug.cpp
++++ b/source/lib/debug.cpp
+@@ -283,7 +283,12 @@ const wchar_t* debug_BuildErrorMessage(
+ 	// header
+ 	if(!writer(
+ 		L"%ls\r\n"
++#ifdef __EMSCRIPTEN__
++		// musl's wide printf rejects the non-standard %hs; %s is the standard narrow string here.
++		L"Location: %ls:%d (%s)\r\n"
++#else
+ 		L"Location: %ls:%d (%hs)\r\n"
++#endif
+ 		L"\r\n"
+ 		L"Call stack:\r\n"
+ 		L"\r\n",
+diff --git a/source/lib/sysdep/os/unix/unix.cpp b/source/lib/sysdep/os/unix/unix.cpp
+index 347aa666..eda1b604 100644
+--- a/source/lib/sysdep/os/unix/unix.cpp
++++ b/source/lib/sysdep/os/unix/unix.cpp
+@@ -224,8 +224,8 @@ ErrorReactionInternal sys_display_error(const wchar_t* text, size_t flags)
+ 	if (ret != ERI_NOT_IMPLEMENTED)
+ 		return ret;
+ 
+-#if OS_ANDROID
+-	// Android has no easy way to get user input here,
++#if OS_ANDROID || defined(__EMSCRIPTEN__)
++	// Android (and the browser) has no easy way to get user input here,
+ 	// so continue or exit automatically
+ 	if(no_continue)
+ 		abort();

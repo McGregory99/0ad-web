@@ -1,0 +1,61 @@
+diff --git a/source/lib/sysdep/os/emscripten/wprintf.cpp b/source/lib/sysdep/os/emscripten/wprintf.cpp
+new file mode 100644
+index 00000000..ba46df30
+--- /dev/null
++++ b/source/lib/sysdep/os/emscripten/wprintf.cpp
+@@ -0,0 +1,55 @@
++/* Copyright (C) 2026 Wildfire Games.
++ * This file is part of 0 A.D. (browser port additions).
++ * Licensed under the same MIT terms as the rest of source/lib.
++ */
++
++// musl's wide printf (used by Emscripten) rejects %hs and %hc, the glibc/MSVC style for narrow
++// string and char arguments that 0 A.D. uses in wide format strings. The linker redirects
++// vswprintf/swprintf here (-Wl,--wrap, see tools/wasm/build-engine.sh); we rewrite those
++// conversions to the standard %s and %c (narrow arguments in wide printf) and call the real one.
++
++#include "precompiled.h"
++
++#include <cstdarg>
++#include <cwchar>
++#include <string>
++
++extern "C" int __real_vswprintf(wchar_t* buffer, size_t size, const wchar_t* format, va_list args);
++
++extern "C" int __wrap_vswprintf(wchar_t* buffer, size_t size, const wchar_t* format, va_list args)
++{
++	std::wstring fixed;
++	fixed.reserve(wcslen(format));
++	for (const wchar_t* p = format; *p; ++p)
++	{
++		fixed.push_back(*p);
++		if (*p != L'%')
++			continue;
++		const wchar_t* q = p + 1;
++		if (*q == L'%')
++		{
++			fixed.push_back(*q);
++			p = q;
++			continue;
++		}
++		while (*q && wcschr(L"-+ #0123456789.*", *q))
++			fixed.push_back(*q++);
++		if (*q == L'h' && (q[1] == L's' || q[1] == L'c'))
++		{
++			fixed.push_back(q[1]);
++			p = q + 1;
++			continue;
++		}
++		p = q - 1;
++	}
++	return __real_vswprintf(buffer, size, fixed.c_str(), args);
++}
++
++extern "C" int __wrap_swprintf(wchar_t* buffer, size_t size, const wchar_t* format, ...)
++{
++	va_list args;
++	va_start(args, format);
++	const int ret = __wrap_vswprintf(buffer, size, format, args);
++	va_end(args);
++	return ret;
++}

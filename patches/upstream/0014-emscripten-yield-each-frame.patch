@@ -1,5 +1,5 @@
 diff --git a/source/main.cpp b/source/main.cpp
-index 0ad09c18..19cfbe74 100644
+index 0ad09c18..55ac47c8 100644
 --- a/source/main.cpp
 +++ b/source/main.cpp
 @@ -183,6 +183,12 @@ bool IsQuitRequested()
@@ -26,3 +26,12 @@ index 0ad09c18..19cfbe74 100644
  			}
  
  		}
+@@ -805,7 +815,7 @@ extern "C" __attribute__((visibility ("default"))) int pyrogenesis_main(int argc
+ int main(int argc, char* argv[])
+ #endif
+ {
+-#if OS_UNIX
++#if OS_UNIX && !defined(__EMSCRIPTEN__) // Emscripten reports uid 0 in the browser.
+ 	// Don't allow people to run the game with root permissions,
+ 	//	because bad things can happen, check before we do anything
+ 	if (geteuid() == 0)

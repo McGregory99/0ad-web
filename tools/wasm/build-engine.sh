@@ -19,7 +19,7 @@ export CFLAGS="-fwasm-exceptions" CXXFLAGS="-fwasm-exceptions"
 # web: browser build (main thread + JSPI), copied to upstream/binaries/system-web with index.html.
 WASM_PROFILE="${WASM_PROFILE:-node}"
 OUT="$ROOT/upstream/binaries/system-wasm"
-COMMON_LDFLAGS="-O2 --profiling-funcs -fwasm-exceptions -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=2MB"
+COMMON_LDFLAGS="-O2 --profiling-funcs -fwasm-exceptions -Wl,--wrap=vswprintf -Wl,--wrap=swprintf -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=2MB"
 case "$WASM_PROFILE" in
   node) export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=8 -sENVIRONMENT=node,worker -sNODERAWFS=1 -sEXIT_RUNTIME=1 --pre-js $ROOT/tools/wasm/node-env.pre.js --js-library $ROOT/tools/wasm/node-lib.js" ;;
   web)
