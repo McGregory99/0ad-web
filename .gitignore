@@ -26,3 +26,4 @@ tools/eval/
 /wasm/stubs/curl/lib/
 /wasm/stubs/curl/*.o
 /wasm/spidermonkey/dist-wasm/
+tools/spikes/**/out-*
