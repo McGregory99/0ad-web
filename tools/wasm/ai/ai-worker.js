@@ -55,7 +55,9 @@ if (isNode) {
 	Codec = self.ZeroADCodec;
 	SpiderMonkeySort = self.ZeroADSpiderMonkeySort;
 	evaluateGlobalScript = (code) => (0, eval)(code);
-	importModule = () => { throw new Error('AI modules are not supported in the browser worker yet'); };
+	// AI modules are static files under ai/modules/ (tools/wasm/build-engine.sh rewrites their
+	// VFS-root import specifiers to relative ones).
+	importModule = (path) => import(new URL('modules/' + path, self.location.href).href);
 }
 
 // --- transport -----------------------------------------------------------------------------------
@@ -85,10 +87,38 @@ function postToEngine(kind, text) {
 // "<type> <ms> <callbacks> <callback ms> <cached queries> <request bytes>".
 const stats = { calls: 0, ms: 0, cached: 0 };
 let writeStats = null;
+// Per-callback totals (same switch): <file>.keys.json, rewritten every 200 requests.
+const keyStats = new Map();
+let dumpKeys = null;
+let requestCount = 0;
 if (isNode && process.env.ZEROAD_AI_WORKER_STATS) {
 	const fs = require('node:fs');
 	const fd = fs.openSync(process.env.ZEROAD_AI_WORKER_STATS, 'w');
 	writeStats = (line) => fs.writeSync(fd, line + '\n');
+	dumpKeys = () => fs.writeFileSync(process.env.ZEROAD_AI_WORKER_STATS + '.keys.json',
+		JSON.stringify(Object.fromEntries([...keyStats].sort((a, b) => b[1].ms - a[1].ms)), null, 1));
+}
+function rpcKey(request) {
+	switch (request.op) {
+	case 'engine': return `engine:${request.name}`;
+	case 'simcall':
+	case 'simget': return `${request.op}:${request.root}.${request.path.join('.')}`;
+	case 'qi': return `qi:${request.iid}`;
+	case 'qicall': return `qicall:${request.iid}.${request.method}`;
+	default: return String(request.op);
+	}
+}
+function countKey(request, ms, cached) {
+	const key = rpcKey(request);
+	let entry = keyStats.get(key);
+	if (!entry)
+		keyStats.set(key, entry = { calls: 0, ms: 0, cached: 0 });
+	if (cached)
+		++entry.cached;
+	else {
+		++entry.calls;
+		entry.ms += ms;
+	}
 }
 
 // ZEROAD_AI_TRACE_MATH=<file> (diagnosis, Node only): the same "MT" lines the in-process AI prints
@@ -163,7 +193,10 @@ function callEngine(kind, text) {
 }
 
 function rpc(request) {
+	const t0 = writeStats ? performance.now() : 0;
 	const response = Codec.decode(callEngine(SERVICE_DISPATCH, Codec.encode(request)));
+	if (writeStats)
+		countKey(request, performance.now() - t0, false);
 	if (response.error !== undefined)
 		throw new Error(response.error);
 	return response.v;
@@ -188,6 +221,8 @@ function rpcCached(request, cacheable) {
 	const key = Codec.encode(request);
 	if (turnCache.has(key)) {
 		++stats.cached;
+		if (writeStats)
+			countKey(request, 0, true);
 		return turnCache.get(key);
 	}
 	const value = rpc(request);
@@ -300,6 +335,8 @@ function postCommand(player, cmd) {
 
 function installGlobals(engineNames) {
 	const g = globalThis;
+	// The engine's script realms expose the global object as `global` (Node has it; a Web Worker does not).
+	g.global = g;
 	// Comparator sorts must order elements like SpiderMonkey does (see sm-sort.js).
 	SpiderMonkeySort.install(g);
 	for (const level of ['print', 'log', 'warn', 'error'])
@@ -492,6 +529,8 @@ async function serve() {
 		reply.rng = rng.state();
 		if (writeStats)
 			writeStats(`${type} ${(performance.now() - t0).toFixed(3)} ${stats.calls} ${stats.ms.toFixed(3)} ${stats.cached} ${size}`);
+		if (dumpKeys && ++requestCount % 200 === 0)
+			dumpKeys();
 		postToEngine(0, Codec.encode(reply));
 	}
 }

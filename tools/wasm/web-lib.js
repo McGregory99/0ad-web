@@ -174,10 +174,95 @@ addToLibrary({
 		Module.remoteStats = ZeroADRemote.stats;
 	},
 
-	// Remote AI (source/simulation2/components/AIRemote.cpp): not wired in the browser yet, so the
-	// engine keeps the in-process AI. Design: reports/T0.6.md (Web Worker + JSPI await).
+	// Remote AI (ZEROAD_AI_REMOTE=1, source/simulation2/components/AIRemote.cpp): the AI scripts run
+	// in a Web Worker (ai/ai-worker.js next to the page, AI modules under ai/modules/). Same protocol
+	// as tools/wasm/node-lib.js (ctrl/data SharedArrayBuffers), but the main thread may not block:
+	// zeroad_ai_remote_call suspends the engine with JSPI and awaits Atomics.waitAsync. Servicing a
+	// callback can itself suspend (remote file reads), so zeroad_ai_service is a JSPI export
+	// (-sJSPI_EXPORTS in tools/wasm/build-engine.sh) and returns a Promise.
+	$ZeroADAI: {
+		worker: null,
+		ctrl: null,
+		data: null,
+		reply: null,
+		failed: false,
+		start() {
+			if (ZeroADAI.worker || ZeroADAI.failed)
+				return !!ZeroADAI.worker;
+			try {
+				const ctrl = new SharedArrayBuffer(16);
+				const data = new SharedArrayBuffer(1 << 20, { maxByteLength: 1 << 30 });
+				ZeroADAI.ctrl = new Int32Array(ctrl);
+				ZeroADAI.data = new Uint8Array(data);
+				ZeroADAI.worker = new Worker(new URL('ai/ai-worker.js', document.baseURI), { name: 'zeroad-ai' });
+				ZeroADAI.worker.onerror = (event) => err(`AI worker: ${event.message || event}`);
+				ZeroADAI.worker.postMessage({ ctrl, data, memory: wasmMemory });
+			} catch (e) {
+				ZeroADAI.failed = true;
+				err('AI worker: failed to start: ' + e);
+			}
+			return !!ZeroADAI.worker;
+		},
+		write(bytes) {
+			const data = ZeroADAI.data;
+			if (bytes.length > data.buffer.byteLength)
+				data.buffer.grow(Math.min(data.buffer.maxByteLength, Math.max(bytes.length, 2 * data.buffer.byteLength)));
+			data.set(bytes);
+			ZeroADAI.ctrl[1] = bytes.length;
+		},
+		// Resolves when ctrl[0] is no longer 1 (the worker posted a message), or with 'timed-out'.
+		async waitForWorker(timeout) {
+			const result = Atomics.waitAsync(ZeroADAI.ctrl, 0, 1, timeout);
+			return result.async ? await result.value : result.value;
+		},
+		stats: { calls: 0, callbacks: 0, ms: 0, maxMs: 0 },
+	},
+	zeroad_ai_remote_call__deps: ['$ZeroADAI', 'zeroad_ai_service_input', 'zeroad_ai_service', 'zeroad_ai_service_output'],
 	zeroad_ai_remote_call__sig: 'ipp',
-	zeroad_ai_remote_call: function(request, length) { return -1; },
+	zeroad_ai_remote_call__async: true,
+	zeroad_ai_remote_call: async function(request, length) {
+		if (!ZeroADAI.start())
+			return -1;
+		const t0 = performance.now();
+		const ctrl = ZeroADAI.ctrl;
+		ZeroADAI.write(HEAPU8.subarray(request, request + length));
+		Atomics.store(ctrl, 0, 1);
+		Atomics.notify(ctrl, 0);
+		for (;;) {
+			// Late-game AI turns may take seconds; a dead worker would block forever.
+			if (await ZeroADAI.waitForWorker(600000) === 'timed-out') {
+				err('AI worker: no reply after 600 s');
+				ZeroADAI.failed = true;
+				return -1;
+			}
+			const kind = ctrl[2];
+			const size = ctrl[1];
+			if (kind === 0) {
+				ZeroADAI.reply = ZeroADAI.data.slice(0, size);
+				Atomics.store(ctrl, 0, 0);
+				Atomics.notify(ctrl, 0);
+				const ms = performance.now() - t0;
+				const stats = ZeroADAI.stats;
+				++stats.calls;
+				stats.ms += ms;
+				stats.maxMs = Math.max(stats.maxMs, ms);
+				return size;
+			}
+			++ZeroADAI.stats.callbacks;
+			const input = _zeroad_ai_service_input(size);
+			HEAPU8.set(ZeroADAI.data.subarray(0, size), input);
+			const outputSize = await _zeroad_ai_service(kind, size);
+			const output = _zeroad_ai_service_output();
+			ZeroADAI.write(HEAPU8.subarray(output, output + outputSize));
+			Atomics.store(ctrl, 0, 1);
+			Atomics.notify(ctrl, 0);
+		}
+	},
+	zeroad_ai_remote_result__deps: ['$ZeroADAI'],
 	zeroad_ai_remote_result__sig: 'vp',
-	zeroad_ai_remote_result: function(out) {},
+	zeroad_ai_remote_result: function(out) {
+		HEAPU8.set(ZeroADAI.reply, out);
+		ZeroADAI.reply = null;
+		Module.aiStats = ZeroADAI.stats;
+	},
 });

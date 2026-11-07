@@ -24,7 +24,7 @@ case "$WASM_PROFILE" in
   node) export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=8 -sENVIRONMENT=node,worker -sNODERAWFS=1 -sEXIT_RUNTIME=1 --pre-js $ROOT/tools/wasm/node-env.pre.js --js-library $ROOT/tools/wasm/node-lib.js" ;;
   web)
     W="$ROOT/tools/wasm/web"; D="$ROOT/upstream/binaries/data"
-    export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=12 -sENVIRONMENT=web,worker -sJSPI=1 -sEXIT_RUNTIME=0 \
+    export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=12 -sENVIRONMENT=web,worker -sJSPI=1 -sJSPI_EXPORTS=zeroad_ai_service -sEXIT_RUNTIME=0 \
       -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFULL_ES3=1 -sGL_ENABLE_GET_PROC_ADDRESS=1 \
       --pre-js $ROOT/tools/wasm/web-env.pre.js --js-library $ROOT/tools/wasm/web-lib.js \
       --preload-file $W/pyrogenesis-exe-placeholder.txt@/0ad/binaries/system/pyrogenesis \
@@ -58,6 +58,15 @@ if [ "$WASM_PROFILE" = web ] && [ $status -eq 0 ]; then
   ln -sf "$(cd "$(dirname "$PUBLIC_ZIP")" && pwd -P)/public.zip" "$WEB/mods/public/public.zip"
   printf '[{"path": "/0ad/binaries/data/mods/public/public.zip", "url": "mods/public/public.zip", "size": %s}]\n' \
     "$(stat -f %z -L "$PUBLIC_ZIP")" > "$WEB/remote-files.json"
+  # Remote AI (ZEROAD_AI_REMOTE=1, see web-lib.js): the worker scripts and the AI modules from
+  # public.zip. The modules import each other with VFS-root specifiers ("simulation/ai/..."), which
+  # browsers cannot resolve, so they are rewritten relative to ai/modules/simulation/ai/<name>/
+  # (every AI module sits at that depth).
+  rm -r "$WEB/ai" 2>/dev/null || true
+  mkdir -p "$WEB/ai/modules"
+  cp "$ROOT/tools/wasm/ai/ai-worker.js" "$ROOT/tools/wasm/ai/codec.js" "$ROOT/tools/wasm/ai/sm-sort.js" "$WEB/ai/"
+  unzip -q -o "$PUBLIC_ZIP" 'simulation/ai/*' -d "$WEB/ai/modules"
+  find "$WEB/ai/modules" -name '*.js' -exec sed -i '' -E "s#([\"'])simulation/ai/#\\1../../../simulation/ai/#g" {} +
   echo "web build copied to $WEB"
 fi
 echo "make exit: $status (log: runs/engine-make.log)"

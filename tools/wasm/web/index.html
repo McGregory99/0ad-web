@@ -22,6 +22,8 @@
 		print: (text) => console.log(text),
 		printErr: (text) => console.warn(text),
 		setStatus: (text) => { document.getElementById('status').textContent = text; },
+		// ?ai=remote runs the AI scripts in a Web Worker (tools/wasm/web-lib.js, ZEROAD_AI_REMOTE).
+		preRun: [() => { if (new URLSearchParams(location.search).get('ai') === 'remote') ENV.ZEROAD_AI_REMOTE = '1'; }],
 	};
 </script>
 <script src="pyrogenesis.js"></script>
