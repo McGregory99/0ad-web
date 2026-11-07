@@ -1,8 +1,8 @@
 // Lossless JSON codec for plain script data crossing between SpiderMonkey (wasm) and the host
-// JS engine (T0.6). Plain JSON loses undefined, NaN, +-Infinity, -0 and typed arrays; they are
+// JS engine (T0.6). Plain JSON loses undefined, NaN, +-Infinity, -0, Set, Map and typed arrays; they are
 // written as tagged strings/objects and restored in place (keeping properties whose value is
 // undefined, which JSON.parse revivers would delete). Must stay in sync with the copy embedded in
-// CCmpAIManager.cpp (AI_CODEC_JS).
+// CCmpAIManager.cpp (AI_REMOTE_HELPER_JS); codec.test.mjs checks it.
 var ZeroADCodec = (function() {
 	const TAG = '\u0000';
 	function replacer(key, value) {
@@ -20,8 +20,16 @@ var ZeroADCodec = (function() {
 		}
 		if (typeof value === 'string' && value.charCodeAt(0) === 0)
 			return TAG + 's' + value;
-		if (ArrayBuffer.isView(value) && !(value instanceof DataView))
-			return { [TAG + 'ta']: value.constructor.name, data: Array.from(value) };
+		if (value !== null && typeof value === 'object') {
+			// Brand checks, because the simulation's objects come from another realm.
+			const brand = Object.prototype.toString.call(value);
+			if (brand === '[object Set]')
+				return { [TAG + 'set']: Array.from(value) };
+			if (brand === '[object Map]')
+				return { [TAG + 'map']: Array.from(value) };
+			if (ArrayBuffer.isView(value) && brand !== '[object DataView]')
+				return { [TAG + 'ta']: value.constructor.name, data: Array.from(value) };
+		}
 		return value;
 	}
 	function revive(value) {
@@ -48,7 +56,11 @@ var ZeroADCodec = (function() {
 		}
 		const taType = value[TAG + 'ta'];
 		if (taType !== undefined)
-			return new globalThis[taType](value.data);
+			return new globalThis[taType](revive(value.data));
+		if (value[TAG + 'set'] !== undefined)
+			return new Set(revive(value[TAG + 'set']));
+		if (value[TAG + 'map'] !== undefined)
+			return new Map(revive(value[TAG + 'map']));
 		for (const key of Object.keys(value))
 			value[key] = revive(value[key]);
 		return value;

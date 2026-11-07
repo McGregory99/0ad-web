@@ -173,4 +173,11 @@ addToLibrary({
 		}
 		Module.remoteStats = ZeroADRemote.stats;
 	},
+
+	// Remote AI (source/simulation2/components/AIRemote.cpp): not wired in the browser yet, so the
+	// engine keeps the in-process AI. Design: reports/T0.6.md (Web Worker + JSPI await).
+	zeroad_ai_remote_call__sig: 'ipp',
+	zeroad_ai_remote_call: function(request, length) { return -1; },
+	zeroad_ai_remote_result__sig: 'vp',
+	zeroad_ai_remote_result: function(out) {},
 });

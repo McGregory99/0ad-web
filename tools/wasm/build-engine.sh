@@ -45,6 +45,8 @@ status=$?
 set -e
 # upstream/package.json declares "type": "module"; Emscripten's output is CommonJS.
 printf '{ "type": "commonjs" }\n' > "$ROOT/upstream/binaries/system-wasm/package.json"
+# Remote AI worker (ZEROAD_AI_REMOTE=1, see tools/wasm/node-lib.js): looked up next to the script.
+[ "$WASM_PROFILE" = node ] && ln -sfn "$ROOT/tools/wasm/ai" "$OUT/ai"
 if [ "$WASM_PROFILE" = web ] && [ $status -eq 0 ]; then
   WEB="$ROOT/upstream/binaries/system-web"
   mkdir -p "$WEB"

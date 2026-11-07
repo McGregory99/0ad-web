@@ -1,0 +1,1027 @@
+diff --git a/source/simulation2/components/AIRemote.cpp b/source/simulation2/components/AIRemote.cpp
+new file mode 100644
+index 00000000..2700221a
+--- /dev/null
++++ b/source/simulation2/components/AIRemote.cpp
+@@ -0,0 +1,117 @@
++/* Copyright (C) 2026 Wildfire Games.
++ * This file is part of 0 A.D.
++ *
++ * 0 A.D. is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * 0 A.D. is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with 0 A.D.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "precompiled.h"
++
++#include "AIRemote.h"
++
++#if defined(__EMSCRIPTEN__)
++
++#include <cstdlib>
++#include <cstring>
++#include <emscripten.h>
++#include <exception>
++#include <utility>
++#include <vector>
++
++extern "C"
++{
++// Implemented in tools/wasm/node-lib.js (Node worker_threads) and tools/wasm/web-lib.js.
++// Sends the request and blocks until the worker's final reply; returns its length in bytes,
++// or -1 when no worker is available.
++int zeroad_ai_remote_call(const char* request, size_t length);
++// Copies the last reply into out (as many bytes as zeroad_ai_remote_call returned).
++void zeroad_ai_remote_result(char* out);
++}
++
++namespace
++{
++const AIRemote::Service* g_Service = nullptr;
++std::vector<char> g_ServiceInput;
++std::string g_ServiceOutput;
++}
++
++extern "C"
++{
++// Called by the JS side while zeroad_ai_remote_call waits: it writes a worker callback into
++// this buffer, calls zeroad_ai_service and reads zeroad_ai_service_output.
++EMSCRIPTEN_KEEPALIVE char* zeroad_ai_service_input(size_t size)
++{
++	g_ServiceInput.resize(size + 1);
++	return g_ServiceInput.data();
++}
++
++EMSCRIPTEN_KEEPALIVE size_t zeroad_ai_service(int kind, size_t length)
++{
++	if (!g_Service)
++	{
++		g_ServiceOutput = "Eno AI request is active";
++		return g_ServiceOutput.size();
++	}
++	try
++	{
++		g_ServiceOutput = (*g_Service)(kind, std::string(g_ServiceInput.data(), length));
++	}
++	catch (const std::exception& e)
++	{
++		g_ServiceOutput = std::string("E") + e.what();
++	}
++	return g_ServiceOutput.size();
++}
++
++EMSCRIPTEN_KEEPALIVE const char* zeroad_ai_service_output()
++{
++	return g_ServiceOutput.data();
++}
++}
++
++bool AIRemote::Enabled()
++{
++	static const bool enabled = []
++	{
++		const char* value = std::getenv("ZEROAD_AI_REMOTE");
++		return value && std::strcmp(value, "1") == 0;
++	}();
++	return enabled;
++}
++
++bool AIRemote::Call(const std::string& request, std::string& reply, const Service& service)
++{
++	const Service* previous = std::exchange(g_Service, &service);
++	const int length = zeroad_ai_remote_call(request.data(), request.size());
++	g_Service = previous;
++	if (length < 0)
++		return false;
++	reply.resize(length);
++	if (length > 0)
++		zeroad_ai_remote_result(reply.data());
++	return true;
++}
++
++#else // !__EMSCRIPTEN__
++
++bool AIRemote::Enabled()
++{
++	return false;
++}
++
++bool AIRemote::Call(const std::string&, std::string&, const Service&)
++{
++	return false;
++}
++
++#endif // __EMSCRIPTEN__
+diff --git a/source/simulation2/components/AIRemote.h b/source/simulation2/components/AIRemote.h
+new file mode 100644
+index 00000000..e8d20be4
+--- /dev/null
++++ b/source/simulation2/components/AIRemote.h
+@@ -0,0 +1,58 @@
++/* Copyright (C) 2026 Wildfire Games.
++ * This file is part of 0 A.D.
++ *
++ * 0 A.D. is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * 0 A.D. is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with 0 A.D.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#ifndef INCLUDED_AIREMOTE
++#define INCLUDED_AIREMOTE
++
++#include <functional>
++#include <string>
++
++/**
++ * Remote AI (WebAssembly builds): the AI scripts run in the host JavaScript engine
++ * (tools/wasm/ai/ai-worker.js) instead of the SpiderMonkey interpreter compiled to wasm.
++ * CCmpAIManager sends one request per AI step and blocks until the worker answers; while it
++ * waits, the worker's synchronous callbacks (simulation queries, templates, paths, file reads)
++ * are answered on the engine thread by the given service function.
++ */
++namespace AIRemote
++{
++/**
++ * Kinds of worker callbacks, see tools/wasm/ai/ai-worker.js.
++ */
++enum ServiceKind
++{
++	SERVICE_DISPATCH = 1,       // codec request for the AI realm dispatcher (Engine.*, Sim, SimEngine, logging)
++	SERVICE_MODULE_CODE = 3,    // VFS path of an AI module -> its code including appendices
++	SERVICE_GLOBAL_SCRIPTS = 4, // -> newline-separated VFS paths of the global scripts
++	SERVICE_GLOBAL_CODE = 5     // VFS path of a global script -> its code
++};
++
++using Service = std::function<std::string(int kind, const std::string& request)>;
++
++/**
++ * True when the remote AI is available in this build and enabled with ZEROAD_AI_REMOTE=1.
++ */
++bool Enabled();
++
++/**
++ * Sends a request to the AI worker and waits for its reply, serving callbacks meanwhile.
++ * Returns false when the worker is not available.
++ */
++bool Call(const std::string& request, std::string& reply, const Service& service);
++}
++
++#endif // INCLUDED_AIREMOTE
+diff --git a/source/simulation2/components/CCmpAIManager.cpp b/source/simulation2/components/CCmpAIManager.cpp
+index 1cc2b516..0572b5b1 100644
+--- a/source/simulation2/components/CCmpAIManager.cpp
++++ b/source/simulation2/components/CCmpAIManager.cpp
+@@ -68,6 +68,8 @@
+ #include "simulation2/system/Component.h"
+ 
+ #include <boost/random/linear_congruential.hpp>
++#include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <js/Array.h>
+ #include <js/GCAPI.h>
+@@ -87,8 +89,232 @@
+ #include <utility>
+ #include <vector>
+ 
++#if defined(__EMSCRIPTEN__)
++#include "simulation2/components/AIRemote.h"
++#define AI_REMOTE 1
++#else
++#define AI_REMOTE 0
++#endif
++
+ extern void QuitEngine(int exitStatus);
+ 
++namespace
++{
++/**
++ * Test hooks (both AI modes, all platforms), off unless the environment variable is set:
++ * - ZEROAD_AI_LOG=<file>: writes every AI command pushed to the command queue, one turn per
++ *   "T <turn> <count> <rng>" line followed by "C <player> <JSON>" lines (tools/bench/aicmp.mjs).
++ * - ZEROAD_AI_HASH_SKIP_SCRIPTS=1: the AI manager serializes everything but the AI script
++ *   objects ("sharedData", "data"), so state hashes of the in-process and remote AI can be compared.
++ */
++FILE* AICommandLog()
++{
++	static FILE* file = []() -> FILE*
++	{
++		const char* path = std::getenv("ZEROAD_AI_LOG");
++		return path && *path ? std::fopen(path, "w") : nullptr;
++	}();
++	return file;
++}
++
++bool AIHashSkipScripts()
++{
++	static const bool skip = []
++	{
++		const char* value = std::getenv("ZEROAD_AI_HASH_SKIP_SCRIPTS");
++		return value && std::strcmp(value, "1") == 0;
++	}();
++	return skip;
++}
++
++/**
++ * ZEROAD_AI_TRACE_MATH=<file> (diagnosis): the in-process AI prints every call of a Math function
++ * that is not correctly rounded as "MT <name> <args> <result>" lines on stdout; the remote AI
++ * writes the same lines to <file> (tools/wasm/ai/ai-worker.js), so tools/bench/mathcmp.mjs can
++ * find the first result that differs between SpiderMonkey and the host engine.
++ */
++bool AITraceMath()
++{
++	static const bool trace = []
++	{
++		const char* value = std::getenv("ZEROAD_AI_TRACE_MATH");
++		return value && *value;
++	}();
++	return trace;
++}
++
++const char* const AI_TRACE_MATH_JS = R"JS(
++for (const name of ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2', 'sinh', 'cosh', 'tanh', 'asinh',
++	'acosh', 'atanh', 'exp', 'expm1', 'log', 'log1p', 'log2', 'log10', 'pow', 'hypot', 'cbrt']) {
++	const f = Math[name];
++	Math[name] = function(...args) {
++		const result = f.apply(Math, args);
++		print('MT ' + name + ' ' + args.join(',') + ' ' + result + '\n');
++		return result;
++	};
++}
++)JS";
++
++/**
++ * ZEROAD_AI_TRACE_STATE=<file> (diagnosis, wasm builds): for every AI computation, the in-process
++ * AI prints "ST <n> <state hash> <state length> <passability hash> <territory hash> <mutated>" on
++ * stdout, where the state is the codec text of the game state without the maps and "mutated" says
++ * whether the AI changed the state objects while it ran (then "SD" lines show the first change).
++ * The remote AI writes the same lines to <file>; compare them with tools/bench/statecmp.mjs.
++ */
++bool AITraceState()
++{
++	static const bool trace = []
++	{
++		const char* value = std::getenv("ZEROAD_AI_TRACE_STATE");
++		return value && *value;
++	}();
++	return trace;
++}
++
++u32 Fnv1a(const void* data, size_t size)
++{
++	u32 hash = 2166136261u;
++	for (size_t i = 0; i < size; ++i)
++	{
++		hash ^= static_cast<const u8*>(data)[i];
++		hash *= 16777619u;
++	}
++	return hash;
++}
++
++#if AI_REMOTE
++/**
++ * Helper evaluated in the AI realm when the AI runs remotely: the codec (a copy of
++ * tools/wasm/ai/codec.js, keep both in sync) and the dispatcher that answers the worker's
++ * callbacks with the same Engine, Sim and SimEngine objects the in-process AI would use.
++ */
++const char* const AI_REMOTE_HELPER_JS = R"JS((function() {
++const Codec = (function() {
++	const TAG = '\u0000';
++	function replacer(key, value) {
++		if (value === undefined)
++			return TAG + 'u';
++		if (typeof value === 'number') {
++			if (Number.isNaN(value))
++				return TAG + 'n';
++			if (value === Infinity)
++				return TAG + 'i';
++			if (value === -Infinity)
++				return TAG + '-i';
++			if (value === 0 && 1 / value < 0)
++				return TAG + '-0';
++		}
++		if (typeof value === 'string' && value.charCodeAt(0) === 0)
++			return TAG + 's' + value;
++		if (value !== null && typeof value === 'object') {
++			// Brand checks, because the simulation's objects come from another realm.
++			const brand = Object.prototype.toString.call(value);
++			if (brand === '[object Set]')
++				return { [TAG + 'set']: Array.from(value) };
++			if (brand === '[object Map]')
++				return { [TAG + 'map']: Array.from(value) };
++			if (ArrayBuffer.isView(value) && brand !== '[object DataView]')
++				return { [TAG + 'ta']: value.constructor.name, data: Array.from(value) };
++		}
++		return value;
++	}
++	function revive(value) {
++		if (typeof value === 'string') {
++			if (value.charCodeAt(0) !== 0)
++				return value;
++			switch (value.slice(1)) {
++			case 'u': return undefined;
++			case 'n': return NaN;
++			case 'i': return Infinity;
++			case '-i': return -Infinity;
++			case '-0': return -0;
++			}
++			if (value[1] === 's')
++				return value.slice(2);
++			return value;
++		}
++		if (value === null || typeof value !== 'object')
++			return value;
++		if (Array.isArray(value)) {
++			for (let i = 0; i < value.length; ++i)
++				value[i] = revive(value[i]);
++			return value;
++		}
++		const taType = value[TAG + 'ta'];
++		if (taType !== undefined)
++			return new globalThis[taType](revive(value.data));
++		if (value[TAG + 'set'] !== undefined)
++			return new Set(revive(value[TAG + 'set']));
++		if (value[TAG + 'map'] !== undefined)
++			return new Map(revive(value[TAG + 'map']));
++		for (const key of Object.keys(value))
++			value[key] = revive(value[key]);
++		return value;
++	}
++	return {
++		encode: (value) => JSON.stringify([value], replacer),
++		decode: (text) => revive(JSON.parse(text))[0],
++	};
++})();
++function walk(root, path, length) {
++	let value = root === 'Sim' ? Sim : SimEngine;
++	for (let i = 0; i < length; ++i)
++		value = value[path[i]];
++	return value;
++}
++function run(request) {
++	switch (request.op) {
++	case 'engine':
++		return Engine[request.name](...request.args);
++	case 'log':
++		return globalThis[request.level](request.text);
++	case 'simget': {
++		const value = walk(request.root, request.path, request.path.length);
++		if (value !== null && (typeof value === 'object' || typeof value === 'function'))
++			return { kind: 'handle' };
++		return { kind: 'value', v: value };
++	}
++	case 'simcall': {
++		const last = request.path.length - 1;
++		return walk(request.root, request.path, last)[request.path[last]](...request.args);
++	}
++	case 'qi': {
++		const cmp = SimEngine.QueryInterface(request.ent, request.iid);
++		return cmp ? true : cmp;
++	}
++	case 'qicall':
++		return SimEngine.QueryInterface(request.ent, request.iid)[request.method](...request.args);
++	}
++	throw new Error('unknown AI worker request ' + request.op);
++}
++return {
++	encode: Codec.encode,
++	decode: Codec.decode,
++	dispatch(text) {
++		try {
++			return Codec.encode({ v: run(Codec.decode(text)) });
++		} catch (e) {
++			return Codec.encode({ error: String(e) + '\n' + (e && e.stack || '') });
++		}
++	},
++	engineNames() {
++		return Object.getOwnPropertyNames(Engine);
++	},
++	stateText(state) {
++		const { passabilityMap, territoryMap, ...rest } = state;
++		try {
++			return Codec.encode(rest);
++		} catch (e) {
++			// The AI may attach its own (cyclic) objects to the state.
++			return 'unencodable: ' + e;
++		}
++	},
++};
++})())JS";
++#endif // AI_REMOTE
++} // anonymous namespace
++
+ /**
+  * @file
+  * Player AI interface.
+@@ -153,6 +379,29 @@ private:
+ 
+ 			Script::GetProperty(rq, metadata, "filename", filename);
+ 
++#if AI_REMOTE
++			if (m_Worker.m_Remote)
++			{
++				// The worker loads the module and calls the constructor (ai-worker.js addPlayer).
++				Script::GetProperty(rq, metadata, "useShared", m_UseSharedComponent);
++				JS::RootedValue request(rq.cx);
++				Script::CreateObject(rq, &request,
++					"type", "addPlayer",
++					"name", m_AIName,
++					"player", m_Player,
++					"difficulty", m_Difficulty,
++					"behavior", m_Behavior,
++					"useShared", m_UseSharedComponent,
++					"metadata", metadata);
++				JS::RootedValue reply(rq.cx);
++				if (!m_Worker.RemoteRequest(request, &reply))
++				{
++					LOGERROR("Failed to create AI player: %s: the AI worker failed", path.string8());
++					return false;
++				}
++				return true;
++			}
++#endif
+ 
+ 			auto result = m_ScriptInterface->GetModuleLoader().LoadModule(rq,
+ 				"simulation/ai/" + utf8_from_wstring(m_AIName) + "/" + filename);
+@@ -284,6 +533,11 @@ public:
+ 
+ 		JS_AddExtraGCRootsTracer(m_ScriptInterface->GetGeneralJSContext(), Trace, this);
+ 
++#if AI_REMOTE
++		m_RemoteHelper.init(rq.cx);
++		m_Remote = AIRemote::Enabled();
++#endif
++
+ 		{
+ 			ScriptRequest simrq(simInterface);
+ 			// Register the sim globals for easy & explicit access. Mark it replaceable for hotloading.
+@@ -311,6 +565,17 @@ public:
+ 		// Globalscripts may use VFS script functions
+ 		m_ScriptInterface->LoadGlobalScripts();
+ 
++		if (AITraceMath() && !IsRemote())
++			m_ScriptInterface->Eval(AI_TRACE_MATH_JS);
++
++#if AI_REMOTE
++		// The remote AI still uses this realm: its dispatcher answers the worker's callbacks.
++		if ((m_Remote || AITraceState()) && !m_ScriptInterface->Eval(AI_REMOTE_HELPER_JS, &m_RemoteHelper))
++		{
++			LOGERROR("AI worker: failed to set up the remote AI helper; running the AI in-process");
++			m_Remote = false;
++		}
++#endif
+ 	}
+ 
+ 	bool HasLoadedEntityTemplates() const { return m_HasLoadedEntityTemplates; }
+@@ -415,6 +680,22 @@ public:
+ 		if (!std::exchange(m_HasSharedComponent, true))
+ 			return false;
+ 
++#if AI_REMOTE
++		if (m_Remote)
++		{
++			ENSURE(m_HasLoadedEntityTemplates);
++			JS::RootedValue request(rq.cx);
++			Script::CreateObject(rq, &request, "type", "loadShared");
++			JS::RootedValue reply(rq.cx);
++			if (!RemoteRequest(request, &reply))
++			{
++				LOGERROR("Failed to create shared AI component: the AI worker failed");
++				return false;
++			}
++			return true;
++		}
++#endif
++
+ 		auto result = m_ScriptInterface->GetModuleLoader().LoadModule(rq,
+ 			"simulation/ai/common-api/shared.js");
+ 
+@@ -493,6 +774,32 @@ public:
+ 
+ 		JS::RootedValue state(rq.cx);
+ 		Script::ReadStructuredClone(rq, gameState, &state);
++
++#if AI_REMOTE
++		if (m_Remote)
++		{
++			m_PassabilityMap = passabilityMap;
++			m_NonPathfindingPassClasses = nonPathfindingPassClassMasks;
++			m_PathfindingPassClasses = pathfindingPassClassMasks;
++
++			m_LongPathfinder.Reload(&m_PassabilityMap);
++			m_HierarchicalPathfinder.Recompute(&m_PassabilityMap, nonPathfindingPassClassMasks, pathfindingPassClassMasks);
++
++			// Like Script::ToJSVal of both grids above: the worker creates new map objects.
++			JS::RootedValue request(rq.cx);
++			Script::CreateObject(rq, &request,
++				"type", "gamestateInit",
++				"state", state,
++				"hasShared", m_HasSharedComponent);
++			SetRemoteGrid(rq, request, "passabilityMap", m_PassabilityMap.m_Data, m_PassabilityMap.m_W, m_PassabilityMap.m_H, sizeof(NavcellData), true);
++			SetRemoteGrid(rq, request, "territoryMap", territoryMap.m_Data, territoryMap.m_W, territoryMap.m_H, sizeof(u8), true);
++			JS::RootedValue reply(rq.cx);
++			if (RemoteRequest(request, &reply))
++				SetRemoteCommands(rq, reply);
++			return true;
++		}
++#endif
++
+ 		Script::ToJSVal(rq, &m_PassabilityMapVal, passabilityMap);
+ 		Script::ToJSVal(rq, &m_TerritoryMapVal, territoryMap);
+ 
+@@ -544,6 +851,16 @@ public:
+ 			m_HierarchicalPathfinder.Update(&m_PassabilityMap, dirtinessGrid);
+ 		}
+ 
++#if AI_REMOTE
++		if (m_Remote)
++		{
++			// Sent with the next computation; a new map object when the JS value would be recreated.
++			m_RemotePassabilityDirty = true;
++			m_RemotePassabilityRecreate = m_RemotePassabilityRecreate || dimensionChange || justDeserialized;
++			return;
++		}
++#endif
++
+ 		ScriptRequest rq(m_ScriptInterface);
+ 		if (dimensionChange || justDeserialized)
+ 			Script::ToJSVal(rq, &m_PassabilityMapVal, m_PassabilityMap);
+@@ -572,6 +889,15 @@ public:
+ 
+ 		m_TerritoryMap = territoryMap;
+ 
++#if AI_REMOTE
++		if (m_Remote)
++		{
++			m_RemoteTerritoryDirty = true;
++			m_RemoteTerritoryRecreate = m_RemoteTerritoryRecreate || dimensionChange;
++			return;
++		}
++#endif
++
+ 		ScriptRequest rq(m_ScriptInterface);
+ 		if (dimensionChange)
+ 			Script::ToJSVal(rq, &m_TerritoryMapVal, m_TerritoryMap);
+@@ -634,6 +960,23 @@ public:
+ 			templates[i].second->ToJSVal(rq, false, &val);
+ 			Script::SetProperty(rq, m_EntityTemplates, templates[i].first.c_str(), val, true);
+ 		}
++
++#if AI_REMOTE
++		if (m_Remote)
++		{
++			JS::RootedValue request(rq.cx);
++			Script::CreateObject(rq, &request, "type", "templates", "templates", m_EntityTemplates);
++			JS::RootedValue reply(rq.cx);
++			RemoteRequest(request, &reply);
++		}
++#endif
++	}
++
++	std::string RNGState() const
++	{
++		std::stringstream stream;
++		stream << m_RNG;
++		return stream.str();
+ 	}
+ 
+ 	void Serialize(std::ostream& stream, bool isDebug)
+@@ -666,8 +1009,20 @@ public:
+ 
+ 		serializer.NumberU32_Unbounded("turn", m_TurnNum);
+ 
++		// The remote AI keeps its script objects in the worker, which cannot serialize them yet.
++		bool skipScripts = AIHashSkipScripts();
++#if AI_REMOTE
++		if (m_Remote && !skipScripts)
++		{
++			static bool warned = false;
++			if (!std::exchange(warned, true))
++				LOGWARNING("The remote AI cannot serialize its script state; saved games and hashes omit it");
++			skipScripts = true;
++		}
++#endif
++
+ 		serializer.Bool("useSharedScript", m_HasSharedComponent);
+-		if (m_HasSharedComponent)
++		if (m_HasSharedComponent && !skipScripts)
+ 			serializer.ScriptVal("sharedData", &m_SharedAIObj);
+ 		for (size_t i = 0; i < m_Players.size(); ++i)
+ 		{
+@@ -684,7 +1039,8 @@ public:
+ 				serializer.ScriptVal("command", &val);
+ 			}
+ 
+-			serializer.ScriptVal("data", &m_Players[i]->m_Obj);
++			if (!skipScripts)
++				serializer.ScriptVal("data", &m_Players[i]->m_Obj);
+ 		}
+ 
+ 		// AI pathfinder
+@@ -708,6 +1064,14 @@ public:
+ 
+ 		ENSURE(m_CommandsComputed); // deserializing while we're still actively computing would be bad
+ 
++#if AI_REMOTE
++		if (m_Remote)
++		{
++			LOGERROR("The remote AI cannot load saved AI state; run without ZEROAD_AI_REMOTE");
++			throw PSERROR_Deserialize_ScriptError();
++		}
++#endif
++
+ 		CStdDeserializer deserializer(*m_ScriptInterface, stream);
+ 
+ 		std::string rngString;
+@@ -768,6 +1132,74 @@ public:
+ 		return m_Players.size();
+ 	}
+ 
++	bool IsRemote() const
++	{
++#if AI_REMOTE
++		return m_Remote;
++#else
++		return false;
++#endif
++	}
++
++#if AI_REMOTE
++	/**
++	 * Sends one request to the AI worker (tools/wasm/ai/ai-worker.js) and waits for its reply.
++	 * The request carries the RNG state and the reply the RNG state after the AI ran, so
++	 * Math.random in the worker continues m_RNG exactly like the in-process AI.
++	 */
++	bool RemoteRequest(JS::HandleValue request, JS::MutableHandleValue reply)
++	{
++		ScriptRequest rq(m_ScriptInterface);
++		if (!std::exchange(m_RemoteStarted, true))
++		{
++			JS::RootedValue engineNames(rq.cx);
++			ScriptFunction::Call(rq, m_RemoteHelper, "engineNames", &engineNames);
++			JS::RootedValue init(rq.cx);
++			Script::CreateObject(rq, &init, "type", "init", "engineNames", engineNames);
++			JS::RootedValue initReply(rq.cx);
++			if (!RemoteRequest(init, &initReply))
++				return false;
++		}
++
++		Script::SetProperty(rq, request, "rng", RNGState());
++		std::string text;
++		if (!ScriptFunction::Call(rq, m_RemoteHelper, "encode", text, request))
++		{
++			LOGERROR("AI worker: failed to encode a request");
++			return false;
++		}
++		std::string output;
++		const AIRemote::Service service = [this](int kind, const std::string& input)
++		{
++			return RemoteService(kind, input);
++		};
++		if (!AIRemote::Call(text, output, service))
++		{
++			LOGERROR("AI worker: not available");
++			return false;
++		}
++		if (!ScriptFunction::Call(rq, m_RemoteHelper, "decode", reply, output) || !reply.isObject())
++		{
++			LOGERROR("AI worker: invalid reply");
++			return false;
++		}
++		std::string rng;
++		if (Script::HasProperty(rq, reply, "rng") && Script::GetProperty(rq, reply, "rng", rng))
++		{
++			std::stringstream stream(rng);
++			stream >> m_RNG;
++		}
++		if (Script::HasProperty(rq, reply, "error"))
++		{
++			std::string error;
++			Script::GetProperty(rq, reply, "error", error);
++			LOGERROR("AI worker: %s", error);
++			return false;
++		}
++		return true;
++	}
++#endif
++
+ private:
+ 	static void Trace(JSTracer *trc, void *data)
+ 	{
+@@ -792,16 +1224,199 @@ private:
+ 		out.set(m_PlayerMetadata[path].get());
+ 	}
+ 
++#if AI_REMOTE
++	/**
++	 * Answers a callback of the AI worker; see AIRemote::ServiceKind. Results of the file kinds
++	 * start with 'O' (the content follows) or 'E' (an error message follows).
++	 */
++	std::string RemoteService(int kind, const std::string& input)
++	{
++		switch (kind)
++		{
++		case AIRemote::SERVICE_DISPATCH:
++		{
++			ScriptRequest rq(m_ScriptInterface);
++			std::string output;
++			if (!ScriptFunction::Call(rq, m_RemoteHelper, "dispatch", output, input))
++				return "[{\"error\":\"the AI dispatcher failed\"}]";
++			return output;
++		}
++		case AIRemote::SERVICE_MODULE_CODE:
++		{
++			// Same rules and appendices as ModuleLoader (scriptinterface/ModuleLoader.cpp).
++			const VfsPath path{VfsPath(input).fileSystemPath().lexically_normal().generic_string()};
++			if (path.string().find(L"simulation/ai/") != 0)
++				return "EImporting file \"" + path.string8() + "\" is disallowed.";
++			std::string code;
++			std::string error;
++			if (!ReadScriptFile(path, code, error))
++				return "E" + error;
++			CFileInfos fileInfos;
++			if (g_VFS->GetDirectoryEntries(path, &fileInfos, nullptr) != INFO::OK)
++				return "EUnable to load files in directory: \"" + path.Parent().string8() + "\"";
++			for (const CFileInfo& fileInfo : fileInfos)
++			{
++				const std::string name{fileInfo.Name().string8()};
++				const std::string suffix{".append.js"};
++				const size_t tilde{name.find('~')};
++				if (name.size() < suffix.size() || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0 ||
++				    tilde == std::string::npos || VfsPath(name.substr(0, tilde) + ".js") != path.Filename())
++					continue;
++				std::string appendix;
++				if (!ReadScriptFile(path.Parent() / fileInfo.Name(), appendix, error))
++					return "E" + error;
++				code += appendix;
++			}
++			return "O" + code;
++		}
++		case AIRemote::SERVICE_GLOBAL_SCRIPTS:
++		{
++			// Same list as ScriptInterface::LoadGlobalScripts.
++			VfsPaths pathnames;
++			vfs::GetPathnames(g_VFS, L"globalscripts/", L"*.js", pathnames);
++			std::string list;
++			for (const VfsPath& pathname : pathnames)
++				list += pathname.string8() + "\n";
++			return "O" + list;
++		}
++		case AIRemote::SERVICE_GLOBAL_CODE:
++		{
++			const VfsPath path{input};
++			if (path.string().find(L"globalscripts/") != 0)
++				return "EReading file \"" + input + "\" is disallowed.";
++			std::string code;
++			std::string error;
++			if (!ReadScriptFile(path, code, error))
++				return "E" + error;
++			return "O" + code;
++		}
++		}
++		return "Eunknown AI worker callback";
++	}
++
++	static bool ReadScriptFile(const VfsPath& path, std::string& code, std::string& error)
++	{
++		if (!VfsFileExists(path))
++		{
++			error = "The file \"" + path.string8() + "\" does not exist.";
++			return false;
++		}
++		if (path.Extension() != L".js")
++		{
++			error = "The file \"" + path.string8() + "\" is not a JavaScript file.";
++			return false;
++		}
++		CVFSFile file;
++		if (file.Load(g_VFS, path) != PSRETURN_OK)
++		{
++			error = "Failed to load file \"" + path.string8() + "\".";
++			return false;
++		}
++		code = file.DecodeUTF8();
++		return true;
++	}
++
++	/**
++	 * Describes a grid for the worker, which copies it out of the (shared) wasm memory while the
++	 * request runs: {width, height, bytes, ptr, recreate}.
++	 */
++	void SetRemoteGrid(const ScriptRequest& rq, JS::HandleValue request, const char* name, const void* data,
++		u16 width, u16 height, u32 bytesPerCell, bool recreate)
++	{
++		JS::RootedValue grid(rq.cx);
++		Script::CreateObject(rq, &grid,
++			"width", width,
++			"height", height,
++			"bytes", bytesPerCell,
++			"ptr", static_cast<u32>(reinterpret_cast<uintptr_t>(data)),
++			"recreate", recreate);
++		Script::SetProperty(rq, request, name, grid);
++	}
++
++	/**
++	 * Replaces every player's pending commands with the reply's commands (one array per player,
++	 * in m_Players order), as structured clones like PostCommand makes them.
++	 */
++	void SetRemoteCommands(const ScriptRequest& rq, JS::HandleValue reply)
++	{
++		JS::RootedValue commands(rq.cx);
++		u32 length = 0;
++		const auto arrayLength = [&rq](JS::HandleValue array, u32& out)
++		{
++			JS::RootedObject object(rq.cx, &array.toObject());
++			return JS::GetArrayLength(rq.cx, object, &out);
++		};
++		if (!Script::GetProperty(rq, reply, "commands", &commands) || !commands.isObject() ||
++		    !arrayLength(commands, length) || length != m_Players.size())
++		{
++			LOGERROR("AI worker: the reply has no commands for each player");
++			return;
++		}
++		for (u32 i = 0; i < length; ++i)
++		{
++			JS::RootedValue playerCommands(rq.cx);
++			u32 count = 0;
++			m_Players[i]->m_Commands.clear();
++			if (!Script::GetPropertyInt(rq, commands, i, &playerCommands) || !playerCommands.isObject() ||
++			    !arrayLength(playerCommands, count))
++				continue;
++			for (u32 j = 0; j < count; ++j)
++			{
++				JS::RootedValue command(rq.cx);
++				Script::GetPropertyInt(rq, playerCommands, j, &command);
++				m_Players[i]->m_Commands.push_back(Script::WriteStructuredClone(rq, command));
++			}
++		}
++	}
++#endif
++
+ 	void PerformComputation()
+ 	{
+ 		// Deserialize the game state, to pass to the AI's HandleMessage
+ 		ScriptRequest rq(m_ScriptInterface);
++
++#if AI_REMOTE
++		if (m_Remote)
++		{
++			PROFILE3("AI remote compute");
++			// The worker adds its passabilityMap and territoryMap objects to the state, runs the
++			// shared component and every player like below, and returns the posted commands.
++			JS::RootedValue request(rq.cx);
++			Script::CreateObject(rq, &request,
++				"type", "compute",
++				"state", m_GameState,
++				"hasShared", m_HasSharedComponent);
++			if (m_RemotePassabilityDirty)
++				SetRemoteGrid(rq, request, "passabilityMap", m_PassabilityMap.m_Data, m_PassabilityMap.m_W, m_PassabilityMap.m_H, sizeof(NavcellData), m_RemotePassabilityRecreate);
++			if (m_RemoteTerritoryDirty)
++				SetRemoteGrid(rq, request, "territoryMap", m_TerritoryMap.m_Data, m_TerritoryMap.m_W, m_TerritoryMap.m_H, sizeof(u8), m_RemoteTerritoryRecreate);
++			m_RemotePassabilityDirty = m_RemotePassabilityRecreate = false;
++			m_RemoteTerritoryDirty = m_RemoteTerritoryRecreate = false;
++			JS::RootedValue reply(rq.cx);
++			if (RemoteRequest(request, &reply))
++				SetRemoteCommands(rq, reply);
++			else
++				for (std::shared_ptr<CAIPlayer>& player : m_Players)
++					player->m_Commands.clear();
++			return;
++		}
++#endif
++
++		if (AITraceMath())
++			debug_printf("MT compute\n");
++
+ 		{
+ 			PROFILE3("AI compute read state");
+ 			Script::SetProperty(rq, m_GameState, "passabilityMap", m_PassabilityMapVal, true);
+ 			Script::SetProperty(rq, m_GameState, "territoryMap", m_TerritoryMapVal, true);
+ 		}
+ 
++#if AI_REMOTE
++		std::string traceBefore;
++		if (AITraceState())
++			ScriptFunction::Call(rq, m_RemoteHelper, "stateText", traceBefore, m_GameState);
++#endif
++
+ 		// It would be nice to do
+ 		//   Script::FreezeObject(rq, state.get(), true);
+ 		// to prevent AI scripts accidentally modifying the state and
+@@ -826,8 +1441,42 @@ private:
+ 			else
+ 				m_Players[i]->Run(m_GameState, m_Players[i]->m_Player);
+ 		}
++
++#if AI_REMOTE
++		if (AITraceState())
++		{
++			std::string after;
++			ScriptFunction::Call(rq, m_RemoteHelper, "stateText", after, m_GameState);
++			debug_printf("ST %u %08x %zu %08x %08x %d\n", m_TracedComputations++, Fnv1a(traceBefore.data(), traceBefore.size()),
++				traceBefore.size(), HashGridValue(rq, m_PassabilityMapVal), HashGridValue(rq, m_TerritoryMapVal), traceBefore != after);
++			if (traceBefore != after)
++			{
++				size_t first = 0;
++				while (first < traceBefore.size() && first < after.size() && traceBefore[first] == after[first])
++					++first;
++				const size_t from = first > 80 ? first - 80 : 0;
++				debug_printf("SD %zu before: %s\n", first, traceBefore.substr(from, 240).c_str());
++				debug_printf("SD %zu after:  %s\n", first, after.substr(from, 240).c_str());
++			}
++		}
++#endif
+ 	}
+ 
++#if AI_REMOTE
++	u32 m_TracedComputations = 0;
++
++	static u32 HashGridValue(const ScriptRequest& rq, JS::HandleValue map)
++	{
++		JS::RootedValue data(rq.cx);
++		if (!map.isObject() || !Script::GetProperty(rq, map, "data", &data) || !data.isObject())
++			return 0;
++		JS::RootedObject object(rq.cx, &data.toObject());
++		bool sharedMemory;
++		JS::AutoCheckCannotGC nogc;
++		return Fnv1a(JS_GetArrayBufferViewData(object, &sharedMemory, nogc), JS_GetArrayBufferViewByteLength(object));
++	}
++#endif
++
+ 	std::shared_ptr<ScriptInterface> m_ScriptInterface;
+ 	boost::rand48 m_RNG;
+ 	u32 m_TurnNum;
+@@ -858,6 +1507,18 @@ private:
+ 	bool m_CommandsComputed;
+ 
+ 	CTemplateLoader m_TemplateLoader;
++
++#if AI_REMOTE
++	// Remote AI (ZEROAD_AI_REMOTE=1): the AI scripts run in tools/wasm/ai/ai-worker.js.
++	bool m_Remote = false;
++	bool m_RemoteStarted = false;
++	JS::PersistentRootedValue m_RemoteHelper; // AI_REMOTE_HELPER_JS
++	// Grid updates not sent to the worker yet, and whether it must create a new map object.
++	bool m_RemotePassabilityDirty = false;
++	bool m_RemotePassabilityRecreate = false;
++	bool m_RemoteTerritoryDirty = false;
++	bool m_RemoteTerritoryRecreate = false;
++#endif
+ };
+ 
+ 
+@@ -1042,6 +1703,9 @@ public:
+ 		std::vector<CAIWorker::SCommandSets> commands;
+ 		m_Worker.GetCommands(commands);
+ 
++		if (FILE* log = AICommandLog())
++			LogCommands(log, commands);
++
+ 		CmpPtr<ICmpCommandQueue> cmpCommandQueue(GetSystemEntity());
+ 		if (!cmpCommandQueue)
+ 			return;
+@@ -1066,6 +1730,26 @@ private:
+ 
+ 	bool m_JustDeserialized;
+ 
++	u32 m_LoggedTurns = 0;
++
++	void LogCommands(FILE* log, const std::vector<CAIWorker::SCommandSets>& commands)
++	{
++		const ScriptInterface& scriptInterface = GetSimContext().GetScriptInterface();
++		ScriptRequest rq(scriptInterface);
++		size_t count = 0;
++		for (const CAIWorker::SCommandSets& set : commands)
++			count += set.commands.size();
++		std::fprintf(log, "T %u %zu %s\n", m_LoggedTurns++, count, m_Worker.RNGState().c_str());
++		for (const CAIWorker::SCommandSets& set : commands)
++			for (const Script::StructuredClone& command : set.commands)
++			{
++				JS::RootedValue value(rq.cx);
++				Script::ReadStructuredClone(rq, command, &value);
++				std::fprintf(log, "C %d %s\n", set.player, Script::StringifyJSON(rq, &value, false).c_str());
++			}
++		std::fflush(log);
++	}
++
+ 	/**
+ 	 * Load the templates of all entities on the map (called when adding a new AI player for a new game
+ 	 * or when deserializing)
