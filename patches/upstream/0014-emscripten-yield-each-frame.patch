@@ -1,0 +1,28 @@
+diff --git a/source/main.cpp b/source/main.cpp
+index 0ad09c18..19cfbe74 100644
+--- a/source/main.cpp
++++ b/source/main.cpp
+@@ -183,6 +183,12 @@ bool IsQuitRequested()
+ 	return g_Shutdown == ShutdownType::Quit;
+ }
+ 
++#ifdef __EMSCRIPTEN__
++// Implemented in tools/wasm/{web,node}-lib.js. In the browser it suspends the wasm stack (JSPI)
++// until the next display refresh, so the blocking main loop below keeps working.
++extern "C" void zeroad_wait_frame();
++#endif
++
+ void QuitEngine(int exitStatus)
+ {
+ 	g_Shutdown = ShutdownType::Quit;
+@@ -765,6 +771,10 @@ static void RunGameOrAtlas(const std::span<const char* const> argv)
+ 					rlInterface->TryApplyMessage();
+ 				else
+ 					NonVisualFrame();
++#ifdef __EMSCRIPTEN__
++				if (isVisual)
++					zeroad_wait_frame();
++#endif
+ 			}
+ 
+ 		}

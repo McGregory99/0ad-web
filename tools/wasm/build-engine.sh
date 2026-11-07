@@ -11,13 +11,29 @@ CC=emcc CXX=em++ ../../libraries/source/premake-core/bin/premake5 --file=premake
   --without-atlas --without-nvtt --without-collada --without-lobby --without-miniupnpc \
   --without-tests --without-pch gmake > "$ROOT/runs/engine-premake.log" 2>&1
 cd ../workspaces/emscripten
+# Native wasm exceptions for every engine object (catching is off by default in Emscripten,
+# and JSPI cannot suspend through the JS-based exception wrappers). Changing these flags needs a
+# clean rebuild: delete build/workspaces/emscripten/obj first (make does not track flags).
+export CFLAGS="-fwasm-exceptions" CXXFLAGS="-fwasm-exceptions"
 # Link profile. node: headless runs in Node (gate T0.3) with direct host file access.
+# web: browser build (main thread + JSPI), copied to upstream/binaries/system-web with index.html.
 WASM_PROFILE="${WASM_PROFILE:-node}"
-COMMON_LDFLAGS="-O2 --profiling-funcs -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=2MB -sPTHREAD_POOL_SIZE=8"
+OUT="$ROOT/upstream/binaries/system-wasm"
+COMMON_LDFLAGS="-O2 --profiling-funcs -fwasm-exceptions -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=2MB"
 case "$WASM_PROFILE" in
-  node) export LDFLAGS="$COMMON_LDFLAGS -sENVIRONMENT=node,worker -sNODERAWFS=1 -sEXIT_RUNTIME=1 --pre-js $ROOT/tools/wasm/node-env.pre.js" ;;
+  node) export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=8 -sENVIRONMENT=node,worker -sNODERAWFS=1 -sEXIT_RUNTIME=1 --pre-js $ROOT/tools/wasm/node-env.pre.js --js-library $ROOT/tools/wasm/node-lib.js" ;;
+  web)
+    W="$ROOT/tools/wasm/web"; D="$ROOT/upstream/binaries/data"
+    export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=12 -sENVIRONMENT=web,worker -sJSPI=1 -sEXIT_RUNTIME=0 \
+      -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFULL_ES3=1 -sGL_ENABLE_GET_PROC_ADDRESS=1 \
+      --pre-js $ROOT/tools/wasm/web-env.pre.js --js-library $ROOT/tools/wasm/web-lib.js \
+      --preload-file $W/pyrogenesis-exe-placeholder.txt@/0ad/binaries/system/pyrogenesis \
+      --preload-file $D/config@/0ad/binaries/data/config \
+      --preload-file $D/mods/mod/mod.zip@/0ad/binaries/data/mods/mod/mod.zip" ;;
   *) echo "unknown WASM_PROFILE: $WASM_PROFILE" >&2; exit 2 ;;
 esac
+# Both profiles write the same output file: remove it so make relinks with this profile's flags.
+rm -f "$OUT/pyrogenesis" "$OUT/pyrogenesis.wasm" "$OUT/pyrogenesis.data"
 echo "profile: $WASM_PROFILE"
 set +e
 emmake make config=release -j6 "$@" > "$ROOT/runs/engine-make.log" 2>&1
@@ -25,6 +41,13 @@ status=$?
 set -e
 # upstream/package.json declares "type": "module"; Emscripten's output is CommonJS.
 printf '{ "type": "commonjs" }\n' > "$ROOT/upstream/binaries/system-wasm/package.json"
+if [ "$WASM_PROFILE" = web ] && [ $status -eq 0 ]; then
+  WEB="$ROOT/upstream/binaries/system-web"
+  mkdir -p "$WEB"
+  cp "$OUT/pyrogenesis" "$WEB/pyrogenesis.js"
+  cp "$OUT/pyrogenesis.wasm" "$OUT/pyrogenesis.data" "$ROOT/tools/wasm/web/index.html" "$WEB/"
+  echo "web build copied to $WEB"
+fi
 echo "make exit: $status (log: runs/engine-make.log)"
 grep -cE 'error:' "$ROOT/runs/engine-make.log" || true
 exit $status
