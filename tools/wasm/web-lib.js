@@ -13,7 +13,7 @@ addToLibrary({
 	// io::Issue (lib/file/io/io.cpp) sends every read here first. Data is fetched with HTTP
 	// Range requests in aligned blocks and kept in an in-memory LRU cache.
 	$ZeroADRemote: {
-		blockSize: 256 << 10,
+		blockSize: 64 << 10,
 		cacheLimit: 768 << 20,
 		cacheBytes: 0,
 		blocks: new Map(), // `${url}#${index}` -> Uint8Array, in LRU order
@@ -37,6 +37,119 @@ addToLibrary({
 				ZeroADRemote.cacheBytes -= oldBlock.length;
 			}
 		},
+		// Opt-in per-path log (page URL must have remotelog=1; otherwise it stays empty and
+		// costs nothing). Key: zip member path (or the archive URL when it cannot be mapped).
+		remoteLog: {}, // path -> { reads, bytesRead, bytesFetched }
+		remoteLogEnabled: null, // tri-state: null = not read from the page URL yet
+		zipIndex: null, // lazily built { cdOfs, entries:[{ofs,name}] } from cached blocks
+		zipIndexFailed: false,
+		remoteLogging() {
+			if (ZeroADRemote.remoteLogEnabled === null)
+				ZeroADRemote.remoteLogEnabled = typeof location !== 'undefined' &&
+					new URLSearchParams(location.search).get('remotelog') === '1';
+			return ZeroADRemote.remoteLogEnabled;
+		},
+		blockLen(remote, index) {
+			return Math.min(ZeroADRemote.blockSize, remote.size - index * ZeroADRemote.blockSize);
+		},
+		// Copy [ofs, ofs+len) out of blocks that are ALREADY in the memory cache.
+		// Returns null if any needed block is missing, so this never triggers a fetch.
+		cachedRange(remote, ofs, len) {
+			const size = ZeroADRemote.blockSize;
+			const out = new Uint8Array(len);
+			let done = 0;
+			while (done < len) {
+				const position = ofs + done;
+				const index = Math.floor(position / size);
+				const block = ZeroADRemote.blocks.get(ZeroADRemote.key(remote.url, index));
+				if (!block)
+					return null;
+				const from = position - index * size;
+				const n = Math.min(len - done, block.length - from);
+				out.set(block.subarray(from, from + n), done);
+				done += n;
+			}
+			return out;
+		},
+		// Map byte offsets to zip member names by walking the central directory that the
+		// engine has already read into the cache. Never reads from the network.
+		zipIndexFor(remote) {
+			if (ZeroADRemote.zipIndex || ZeroADRemote.zipIndexFailed)
+				return ZeroADRemote.zipIndex;
+			const u16 = (a, p) => a[p] | (a[p + 1] << 8);
+			const u32 = (a, p) => (a[p] | (a[p + 1] << 8) | (a[p + 2] << 16) | (a[p + 3] << 24)) >>> 0;
+			const tailLen = Math.min(66000, remote.size);
+			const tail = ZeroADRemote.cachedRange(remote, remote.size - tailLen, tailLen);
+			if (!tail)
+				return null;
+			let ecdr = -1;
+			for (let i = tail.length - 22; i >= 0; --i)
+				if (tail[i] === 0x50 && tail[i + 1] === 0x4b && tail[i + 2] === 0x05 && tail[i + 3] === 0x06) {
+					ecdr = i;
+					break;
+				}
+			if (ecdr < 0) {
+				ZeroADRemote.zipIndexFailed = true;
+				return null;
+			}
+			const numEntries = u16(tail, ecdr + 10);
+			const cdSize = u32(tail, ecdr + 12);
+			const cdOfs = u32(tail, ecdr + 16);
+			if (numEntries === 0xFFFF || cdSize === 0xFFFFFFFF || cdOfs === 0xFFFFFFFF) {
+				ZeroADRemote.zipIndexFailed = true; // zip64: not handled, fall back to the URL
+				return null;
+			}
+			const cd = ZeroADRemote.cachedRange(remote, cdOfs, cdSize);
+			if (!cd)
+				return null; // central directory not in the cache yet
+			const entries = [];
+			let p = 0;
+			for (let i = 0; i < numEntries && p + 46 <= cd.length; ++i) {
+				if (u32(cd, p) !== 0x02014b50)
+					break;
+				const nameLen = u16(cd, p + 28);
+				const extraLen = u16(cd, p + 30);
+				const commentLen = u16(cd, p + 32);
+				const lfhOfs = u32(cd, p + 42);
+				let name = '';
+				for (let j = 0; j < nameLen; ++j)
+					name += String.fromCharCode(cd[p + 46 + j]);
+				entries.push({ ofs: lfhOfs, name });
+				p += 46 + nameLen + extraLen + commentLen;
+			}
+			entries.sort((a, b) => a.ofs - b.ofs);
+			ZeroADRemote.zipIndex = { cdOfs, entries };
+			return ZeroADRemote.zipIndex;
+		},
+		// Name of the zip member whose bytes contain <offset>.
+		attribute(remote, offset) {
+			const index = ZeroADRemote.zipIndexFor(remote);
+			if (!index)
+				return remote.url;
+			if (offset >= index.cdOfs)
+				return '(zip central directory)';
+			const entries = index.entries;
+			let lo = 0, hi = entries.length - 1, best = -1;
+			while (lo <= hi) {
+				const mid = (lo + hi) >> 1;
+				if (entries[mid].ofs <= offset) {
+					best = mid;
+					lo = mid + 1;
+				} else {
+					hi = mid - 1;
+				}
+			}
+			return best >= 0 ? entries[best].name : '(zip local headers)';
+		},
+		logRead(remote, offset, count, fetched) {
+			const name = ZeroADRemote.attribute(remote, offset);
+			const entry = ZeroADRemote.remoteLog[name] ||
+				(ZeroADRemote.remoteLog[name] = { reads: 0, bytesRead: 0, bytesFetched: 0 });
+			entry.reads++;
+			entry.bytesRead += count;
+			entry.bytesFetched += fetched;
+		},
+
 		// Persistent cache (Cache Storage): one entry per block, keyed by a synthetic URL that
 		// includes the file size, so a new archive version never reuses old blocks.
 		cachePromise: null,
@@ -45,6 +158,15 @@ addToLibrary({
 				ZeroADRemote.cachePromise = (globalThis.caches ? caches.open('zeroad-blocks-v1') : Promise.reject())
 					.catch(() => null);
 			return ZeroADRemote.cachePromise;
+		},
+		// Optional URL override: blocksize=<KiB> (default 64 KiB). The Cache Storage key
+		// already carries bs=<bytes>, so different sizes never reuse each other's blocks.
+		configureBlockSize() {
+			if (typeof location === 'undefined')
+				return;
+			const kib = parseInt(new URLSearchParams(location.search).get('blocksize'), 10);
+			if (kib > 0)
+				ZeroADRemote.blockSize = kib << 10;
 		},
 		cacheUrl(remote, index) { return `${remote.url}?size=${remote.size}&block=${index}&bs=${ZeroADRemote.blockSize}`; },
 		// Load blocks [first, last]: from Cache Storage when present, the rest from the network.
@@ -149,6 +271,15 @@ addToLibrary({
 		const size = ZeroADRemote.blockSize;
 		const first = Math.floor(offset / size);
 		const last = Math.floor((offset + count - 1) / size);
+		if (ZeroADRemote.remoteLogging()) {
+			let fetched = 0;
+			for (let index = first; index <= last; ++index) {
+				const key = ZeroADRemote.key(remote.url, index);
+				if (!ZeroADRemote.blocks.has(key) && !ZeroADRemote.inflight.has(key))
+					fetched += ZeroADRemote.blockLen(remote, index);
+			}
+			ZeroADRemote.logRead(remote, offset, count, fetched);
+		}
 		let cached = true;
 		for (let index = first; index <= last && cached; ++index)
 			cached = ZeroADRemote.blocks.has(ZeroADRemote.key(remote.url, index));
@@ -164,6 +295,7 @@ addToLibrary({
 	// Called from web-env.pre.js (preRun): create the remote file nodes.
 	zeroad_register_remote_files__deps: ['$FS', '$ZeroADRemote'],
 	zeroad_register_remote_files: function(list, baseUrl) {
+		ZeroADRemote.configureBlockSize();
 		for (const entry of list) {
 			const slash = entry.path.lastIndexOf('/');
 			FS.mkdirTree(entry.path.slice(0, slash));
@@ -172,6 +304,7 @@ addToLibrary({
 			node.zeroadRemote = { url: new URL(entry.url, baseUrl).href, size: entry.size };
 		}
 		Module.remoteStats = ZeroADRemote.stats;
+		Module.remoteLog = ZeroADRemote.remoteLog;
 	},
 
 	// Remote AI (ZEROAD_AI_REMOTE=1, source/simulation2/components/AIRemote.cpp): the AI scripts run
