@@ -1,0 +1,163 @@
+diff --git a/source/renderer/SceneRenderer.cpp b/source/renderer/SceneRenderer.cpp
+index 317574a..d9c52f0 100644
+--- a/source/renderer/SceneRenderer.cpp
++++ b/source/renderer/SceneRenderer.cpp
+@@ -229,9 +229,11 @@ void CSceneRenderer::ReloadShaders(Renderer::Backend::IDevice* device)
+ 		ENSURE(1 <= cascadeCount && cascadeCount <= 4);
+ 		const CStrIntern cascadeCountStr[5] = {str_0, str_1, str_2, str_3, str_4};
+ 		m->globalContext.Add(str_SHADOWS_CASCADE_COUNT, cascadeCountStr[cascadeCount]);
+-#if CONFIG2_GLES
++#if CONFIG2_GLES && !defined(__EMSCRIPTEN__)
+ 		const bool useShadowSampler{device->GetBackend() != Renderer::Backend::Backend::GL};
+ #else
++		// WebGL2 (GLES 3.0) has real shadow samplers, unlike GLES 2.0, so use the
++		// hardware comparison path (which is also what enables PCF in the shaders).
+ 		const bool useShadowSampler{true};
+ #endif
+ 		if (useShadowSampler)
+diff --git a/source/renderer/ShadowMap.cpp b/source/renderer/ShadowMap.cpp
+index ef77b43..20dd81f 100644
+--- a/source/renderer/ShadowMap.cpp
++++ b/source/renderer/ShadowMap.cpp
+@@ -562,7 +562,12 @@ void ShadowMapInternals::CreateTexture()
+ 				Renderer::Backend::Sampler::AddressMode::CLAMP_TO_EDGE));
+ 	}
+ 
+-#if CONFIG2_GLES
++#if CONFIG2_GLES && defined(__EMSCRIPTEN__)
++	// WebGL2 (GLES 3.0) does do depth comparisons, so use LINEAR like the desktop path
++	// to get automatic PCF instead of a single blocky NEAREST sample.
++	const Renderer::Backend::Sampler::Filter depthFilter{
++		Renderer::Backend::Sampler::Filter::LINEAR};
++#elif CONFIG2_GLES
+ 	// GLES doesn't do depth comparisons, so treat it as a
+ 	// basic unfiltered depth texture
+ 	const Renderer::Backend::Sampler::Filter depthFilter{
+diff --git a/source/renderer/backend/gl/DeviceCommandContext.cpp b/source/renderer/backend/gl/DeviceCommandContext.cpp
+index f998882..aa1369e 100644
+--- a/source/renderer/backend/gl/DeviceCommandContext.cpp
++++ b/source/renderer/backend/gl/DeviceCommandContext.cpp
+@@ -1342,7 +1342,10 @@ void CDeviceCommandContext::SetTexture(const int32_t bindingSlot, ITexture* text
+ 		return;
+ 
+ 	if (textureUnit.type != GL_SAMPLER_2D &&
+-#if !CONFIG2_GLES
++#if defined(__EMSCRIPTEN__)
++		// WebGL2 (GLES 3.0) sampler2DShadow, raw value (glad gles2 header has no enum).
++		textureUnit.type != 0x8B62 &&
++#elif !CONFIG2_GLES
+ 		textureUnit.type != GL_SAMPLER_2D_SHADOW &&
+ #endif
+ 		textureUnit.type != GL_SAMPLER_CUBE)
+@@ -1351,8 +1354,12 @@ void CDeviceCommandContext::SetTexture(const int32_t bindingSlot, ITexture* text
+ 		return;
+ 	}
+ 
+-#if !CONFIG2_GLES
++#if defined(__EMSCRIPTEN__)
++	// WebGL2 (GLES 3.0) sampler2DShadow, raw value (glad gles2 header has no enum).
++	if (textureUnit.type == 0x8B62)
++#elif !CONFIG2_GLES
+ 	if (textureUnit.type == GL_SAMPLER_2D_SHADOW)
++#endif
+ 	{
+ 		if (!IsDepthFormat(texture->GetFormat()))
+ 		{
+@@ -1360,7 +1367,6 @@ void CDeviceCommandContext::SetTexture(const int32_t bindingSlot, ITexture* text
+ 			return;
+ 		}
+ 	}
+-#endif
+ 
+ 	ENSURE(textureUnit.unit >= 0);
+ 	const uint32_t unit = textureUnit.unit;
+diff --git a/source/renderer/backend/gl/ShaderProgram.cpp b/source/renderer/backend/gl/ShaderProgram.cpp
+index 30551fc..d108a95 100644
+--- a/source/renderer/backend/gl/ShaderProgram.cpp
++++ b/source/renderer/backend/gl/ShaderProgram.cpp
+@@ -275,7 +275,7 @@ std::tuple<GLenum, GLenum, GLint> GetElementTypeAndCountFromString(const CStr& s
+ 	CASE("sampler1D", SAMPLER_1D, TEXTURE_1D, 1);
+ #endif
+ 	CASE("sampler2D", SAMPLER_2D, TEXTURE_2D, 1);
+-#if CONFIG2_GLES
++#if CONFIG2_GLES && !defined(__EMSCRIPTEN__)
+ 	if (str == "sampler2DShadow") debug_warn(L"sampler2DShadow not implemented on GLES");
+ 	if (str == "sampler3D") debug_warn(L"sampler3D not implemented on GLES");
+ #else
+@@ -717,7 +717,27 @@ public:
+ 				LOGERROR("Failed to preprocess shader: '%s'", path.string8());
+ 				return;
+ 			}
+-#if CONFIG2_GLES
++#if CONFIG2_GLES && defined(__EMSCRIPTEN__)
++			// WebGL2: compile the GLSL 1.10/1.20 sources as GLSL ES 3.00, which has real shadow
++			// samplers (GLSL ES 1.00 on WebGL has none, so shadows were blocky). The prelude maps the
++			// removed built-ins; gl_FragColor/gl_FragData are renamed in the text because gl_-prefixed
++			// names are reserved for macros.
++			{
++				const bool fragment = type == GL_FRAGMENT_SHADER;
++				CStr prelude = "#version 300 es\nprecision highp float;\nprecision highp sampler2DShadow;\n"
++					"#define texture2D texture\n#define textureCube texture\n#define shadow2D(s, c) vec4(texture(s, c))\n";
++				prelude += fragment
++					? "#define varying in\nlayout(location = 0) out vec4 zeroad_FragData[4];\n"
++					: "#define attribute in\n#define varying out\n";
++				for (const char* version : {"#version 110\n", "#version 110\r\n", "#version 120\n", "#version 120\r\n"})
++					source.Replace(version, prelude);
++				if (fragment)
++				{
++					source.Replace("gl_FragColor", "zeroad_FragData[0]");
++					source.Replace("gl_FragData", "zeroad_FragData");
++				}
++			}
++#elif CONFIG2_GLES
+ 			// Ugly hack to replace desktop GLSL 1.10/1.20 with GLSL ES 1.00,
+ 			// and also to set default float precision for fragment shaders
+ 			source.Replace("#version 110\n", "#version 100\nprecision highp float;\n");
+@@ -943,11 +963,20 @@ public:
+ 				bindingSlot.elementType = GL_TEXTURE_CUBE_MAP;
+ 				bindingSlot.isTexture = true;
+ 				break;
+-#if !CONFIG2_GLES
++#if defined(__EMSCRIPTEN__)
++			// WebGL2 (GLES 3.0) does have sampler2DShadow; our glad header is GLES 2 only,
++			// hence the raw value of GL_SAMPLER_2D_SHADOW (0x8B62).
++			case 0x8B62:
++				bindingSlot.elementType = GL_TEXTURE_2D;
++				bindingSlot.isTexture = true;
++				break;
++#elif !CONFIG2_GLES
+ 			case GL_SAMPLER_2D_SHADOW:
+ 				bindingSlot.elementType = GL_TEXTURE_2D;
+ 				bindingSlot.isTexture = true;
+ 				break;
++#endif
++#if !CONFIG2_GLES
+ 			case GL_IMAGE_2D:
+ 				bindingSlot.elementType = GL_IMAGE_2D;
+ 				bindingSlot.isTexture = true;
+diff --git a/source/renderer/backend/gl/Texture.cpp b/source/renderer/backend/gl/Texture.cpp
+index af908f9..28b1b80 100644
+--- a/source/renderer/backend/gl/Texture.cpp
++++ b/source/renderer/backend/gl/Texture.cpp
+@@ -328,6 +328,21 @@ std::unique_ptr<CTexture> CTexture::Create(
+ 		else
+ 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+ 	}
++#elif defined(__EMSCRIPTEN__)
++	// WebGL2 (GLES 3.0) supports hardware depth comparisons, so enable the same
++	// compare mode the desktop path uses. Our glad header is GLES 2 only, hence the
++	// raw enum values (GL_TEXTURE_COMPARE_MODE / GL_COMPARE_REF_TO_TEXTURE /
++	// GL_TEXTURE_COMPARE_FUNC / GL_NONE).
++	if (IsDepthFormat(format))
++	{
++		if (defaultSamplerDesc.compareEnabled)
++		{
++			glTexParameteri(GL_TEXTURE_2D, 0x884C, 0x884E);
++			glTexParameteri(GL_TEXTURE_2D, 0x884D, Mapping::FromCompareOp(defaultSamplerDesc.compareOp));
++		}
++		else
++			glTexParameteri(GL_TEXTURE_2D, 0x884C, 0);
++	}
+ #endif
+ 
+ 	ogl_WarnIfError();
