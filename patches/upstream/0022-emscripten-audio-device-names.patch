@@ -1,0 +1,19 @@
+diff --git a/source/soundmanager/SoundManager.cpp b/source/soundmanager/SoundManager.cpp
+index 622d8fc..ee01ae7 100644
+--- a/source/soundmanager/SoundManager.cpp
++++ b/source/soundmanager/SoundManager.cpp
+@@ -847,9 +847,14 @@ void CSoundManager::RunHardwareDetection()
+ 	}
+ 	else
+ 	{
++#ifdef __EMSCRIPTEN__
++		// Web Audio has no device enumeration; this is not an error in the browser.
++		m_SoundCardNames = "Web Audio";
++#else
+ 		const char* failMsg = "Failed to query audio device names";
+ 		LOGERROR(failMsg);
+ 		m_SoundCardNames = failMsg;
++#endif
+ 	}
+ 
+ 	// Driver version

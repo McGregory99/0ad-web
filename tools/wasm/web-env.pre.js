@@ -74,4 +74,26 @@ if (typeof window !== 'undefined' && (typeof ENVIRONMENT_IS_PTHREAD === 'undefin
 	setInterval(zeroadPersist, 10000);
 	addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') zeroadPersist(); });
 	addEventListener('pagehide', () => zeroadPersist());
+
+	// Browsers start an AudioContext suspended until a user gesture. Keep the contexts the
+	// OpenAL layer creates, resume them on the first click or key press, and expose them as
+	// Module.audioContexts so tests can read their state.
+	if (typeof AudioContext !== 'undefined') {
+		const contexts = [];
+		Module.audioContexts = contexts;
+		const NativeAudioContext = AudioContext;
+		globalThis.AudioContext = class extends NativeAudioContext {
+			constructor(...args) {
+				super(...args);
+				contexts.push(this);
+			}
+		};
+		const resumeAll = () => {
+			for (const context of contexts)
+				if (context.state === 'suspended')
+					context.resume();
+		};
+		for (const type of ['pointerdown', 'keydown', 'touchend'])
+			addEventListener(type, resumeAll, { capture: true });
+	}
 }
