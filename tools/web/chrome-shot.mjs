@@ -18,6 +18,7 @@
 // Keys: DOM key names (Escape, Enter, Tab, ArrowUp, F11, a, ...); code and keyCode are filled in.
 // Env CHROME_GPU=1 uses the real GPU (ANGLE Metal) instead of SwiftShader.
 // Env CHROME_W / CHROME_H set the viewport size (default 1280x720).
+// Audio is muted (--mute-audio) unless env CHROME_AUDIO=1; use that only for sound tests.
 // Writes <outdir>/console.log (console messages and exceptions, with seconds since start).
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync, readFileSync } from 'node:fs';
@@ -46,6 +47,7 @@ const chrome = spawn(CHROME, [
   '--headless=new', `--user-data-dir=${profile}`, '--no-first-run', '--remote-debugging-port=0',
   ...(process.env.CHROME_GPU === '1' ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist']
     : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']),
+  ...(process.env.CHROME_AUDIO === '1' ? [] : ['--mute-audio']),
   `--window-size=${W},${H}`, 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
