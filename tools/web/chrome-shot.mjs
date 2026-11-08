@@ -12,6 +12,7 @@
 //     stats             log Module.remoteStats (remote file reads, requests, bytes)
 //     reload            reload the page (same profile: Cache Storage survives)
 //     fps:<s>           measure requestAnimationFrame intervals for s seconds (frames, fps, p50/p99/max ms)
+//     resize:<w>:<h>    change the viewport size live (Emulation.setDeviceMetricsOverride)
 //     evalfile:<path>   evaluate the JavaScript in <path> in the page (awaits a returned Promise) and log the result
 //     keydown:<key> / keyup:<key>   press or release a key only (hold keys across waits)
 // Keys: DOM key names (Escape, Enter, Tab, ArrowUp, F11, a, ...); code and keyCode are filled in.
@@ -157,6 +158,9 @@ for (const step of script.split(',')) {
   } else if (op === 'reload') {
     await s('Page.reload', { ignoreCache: false });
     log('reload');
+  } else if (op === 'resize') {
+    await s('Emulation.setDeviceMetricsOverride', { width: Number(a), height: Number(b), deviceScaleFactor: 1, mobile: false });
+    log(`resize ${a}x${b}`);
   } else if (op === 'fps') {
     const expression = `new Promise((done) => {
       const times = []; let last = performance.now(); const end = last + ${Number(a) * 1000};
