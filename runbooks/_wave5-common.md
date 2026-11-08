@@ -13,3 +13,4 @@ Wave 5 additions:
 - Edits in `upstream/` stay uncommitted. The supervisor commits and writes patch files.
 - In the report, label every claim: **observed** (you saw it in output), **derived** (computed from
   observed numbers), **inferred** (your guess).
+- chrome-shot mutes Chrome by default. Only a runbook that tests sound sets `CHROME_AUDIO=1`.
