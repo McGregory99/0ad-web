@@ -1,0 +1,67 @@
+diff --git a/source/graphics/MapReader.cpp b/source/graphics/MapReader.cpp
+index 1e90bad..b527cae 100644
+--- a/source/graphics/MapReader.cpp
++++ b/source/graphics/MapReader.cpp
+@@ -84,6 +84,11 @@
+ #include <string_view>
+ #include <utility>
+ 
++#ifdef __EMSCRIPTEN__
++#include <fstream>
++#include <unordered_map>
++#endif
++
+ extern bool IsQuitRequested();
+ 
+ #if defined(_MSC_VER) && _MSC_VER > 1900
+@@ -441,6 +446,50 @@ PSRETURN CMapSummaryReader::LoadMap(const VfsPath& pathname)
+ {
+ 	VfsPath filename_xml = pathname.ChangeExtension(L".xml");
+ 
++#ifdef __EMSCRIPTEN__
++	// Web build: every map's <ScriptSettings> text is extracted at build time into
++	// /0ad/mapsettings.idx (tools/wasm/map-settings-index.py, preloaded by build-engine.sh), so the
++	// game setup screen does not have to download each map's whole .xml.cached.xmb. If the index
++	// is missing or the map is not in it, the XMB branch below is used as before.
++	static std::unordered_map<std::string, std::string> mapSettingsIndex;
++	static bool mapSettingsIndexLoaded = false;
++	if (!mapSettingsIndexLoaded)
++	{
++		mapSettingsIndexLoaded = true;
++		std::ifstream indexFile("/0ad/mapsettings.idx", std::ios::binary);
++		while (indexFile)
++		{
++			// Record format: <path>\n<length>\n<length bytes>\n
++			std::string mapPath;
++			std::string lengthText;
++			if (!std::getline(indexFile, mapPath) || !std::getline(indexFile, lengthText))
++				break;
++			std::size_t length = 0;
++			try
++			{
++				length = static_cast<std::size_t>(std::stoul(lengthText));
++			}
++			catch (...)
++			{
++				break;
++			}
++			std::string settings(length, '\0');
++			if (length > 0)
++				indexFile.read(&settings[0], static_cast<std::streamsize>(length));
++			indexFile.get(); // trailing newline
++			mapSettingsIndex.emplace(std::move(mapPath), std::move(settings));
++		}
++	}
++
++	const auto it = mapSettingsIndex.find(filename_xml.string8());
++	if (it != mapSettingsIndex.end())
++	{
++		// The stored text is UTF-8, like the CStr the XMB branch produces.
++		m_ScriptSettings = it->second;
++		return PSRETURN_OK;
++	}
++#endif
++
+ 	CXeromyces xmb_file;
+ 	if (xmb_file.Load(g_VFS, filename_xml, "scenario") != PSRETURN_OK)
+ 		return PSRETURN_File_ReadFailed;

@@ -37,12 +37,23 @@ case "$WASM_PROFILE" in
   node) export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=8 -sENVIRONMENT=node,worker -sNODERAWFS=1 -sEXIT_RUNTIME=1 --pre-js $ROOT/tools/wasm/node-env.pre.js --js-library $ROOT/tools/wasm/node-lib.js" ;;
   web)
     W="$ROOT/tools/wasm/web"; D="$ROOT/upstream/binaries/data"
+    # Map settings index (runbooks/T4.3h): every map's <ScriptSettings> text extracted at build
+    # time, so the game setup screen does not download each map's cached XMB. Regenerated when
+    # public.zip or the generator is newer than the existing index.
+    PUBLIC_ZIP="$ROOT/upstream/binaries/data/mods/public/public.zip"
+    MAPSETTINGS_IDX="$OUT/mapsettings.idx"
+    if [ ! -f "$MAPSETTINGS_IDX" ] || [ "$PUBLIC_ZIP" -nt "$MAPSETTINGS_IDX" ] || \
+       [ "$ROOT/tools/wasm/map-settings-index.py" -nt "$MAPSETTINGS_IDX" ]; then
+      mkdir -p "$OUT"
+      python3 -I "$ROOT/tools/wasm/map-settings-index.py" "$PUBLIC_ZIP" "$MAPSETTINGS_IDX"
+    fi
     export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=12 -sENVIRONMENT=web,worker -sJSPI=1 -sJSPI_EXPORTS=zeroad_ai_service -sEXIT_RUNTIME=0 \
       -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFULL_ES3=1 -sGL_ENABLE_GET_PROC_ADDRESS=1 \
       -lidbfs.js -sEXPORTED_RUNTIME_METHODS=FS \
       --pre-js $ROOT/tools/wasm/web-env.pre.js --js-library $ROOT/tools/wasm/web-lib.js \
       --preload-file $W/pyrogenesis-exe-placeholder.txt@/0ad/binaries/system/pyrogenesis \
       --preload-file $D/config@/0ad/binaries/data/config \
+      --preload-file $MAPSETTINGS_IDX@/0ad/mapsettings.idx \
       -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=zeroad_register_remote_files \
       --preload-file $D/mods/mod/mod.zip@/0ad/binaries/data/mods/mod/mod.zip \
       --preload-file $D/mods/public/mod.json@/0ad/binaries/data/mods/public/mod.json \
