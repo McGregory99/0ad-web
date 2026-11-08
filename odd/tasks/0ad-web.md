@@ -27,53 +27,57 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 | ID | Task | Specs | Route | Depends | Status | Evidence |
 |----|------|-------|-------|---------|--------|----------|
 | T0.1 | Native build + reference replay + native replay time | S1,S6 | pi `t01` | — | done (verified: replay hash `6908836f8d8ca50562faab971ad0c4ca` twice, 35.1 s / 37.5 s) | `runbooks/T0.1-*.md` → `reports/T0.1.md` |
-| T0.2 | SpiderMonkey 128 → wasm (no JIT). E1 = wasm32-wasi via wasi-sdk 24 + Rust 1.79, portable baseline interpreter | S1,S6 | pi `t02` | — | E1 done + E2 done (verified: wasi SpiderMonkey linked by em++ runs JS in Node); threads pending | `runbooks/T0.2-E1-*.md` → `reports/T0.2-E1.md` |
-| T0.3 | Headless wasm replay in Node: hash equality + speed ratio (GATE) | S6 | pi (runbook pending) | T0.2 | T0.3a no-JIT proxy running (t01); full gate needs T1.1 | |
-| T0.4 | Turn-time tail: find what makes slow turns slow, then fix until S8-Q2 holds | S6,S8 | pi `t02` | T0.3 | T0.4a done (not GC); T0.4b sim profile running | `runbooks/T0.4a-*.md` |
-| T0.5 | Portable baseline interpreter crash (PBL): reproduce, locate, fix or keep off | S8 | pi `t01` | T0.3 | parked: PBL stays off (T0.5a: 3/3 crash, GC-timing dependent) | `runbooks/T0.5a-*.md` |
-| T2.0 | Browser spike: SDL2 + WebGL2 on PROXY_TO_PTHREAD + OffscreenCanvas + emscripten_set_main_loop | S1,S8 | pi `t10` | T0.6 | Petra AI in a browser-engine worker (V8 Web Worker / Node worker_threads), computed between turns; sim queries, templates and ComputePath served over a SharedArrayBuffer RPC | S6,S8 | supervisor (inline) + pi checks | T2.2a | design |  |
+| T0.2 | SpiderMonkey 128 → wasm (no JIT). E1 = wasm32-wasi via wasi-sdk 24 + Rust 1.79, portable baseline interpreter | S1,S6 | pi `t02` | — | done (SpiderMonkey 128 wasm, threads build) | `runbooks/T0.2-E1-*.md` → `reports/T0.2-E1.md` |
+| T0.3 | Headless wasm replay in Node: hash equality + speed ratio (GATE) | S6 | pi (runbook pending) | T0.2 | done: gate passed (hash equal, 5.9x native) | |
+| T0.4 | Turn-time tail: find what makes slow turns slow, then fix until S8-Q2 holds | S6,S8 | pi `t02` | T0.3 | partial: T0.4e snapshot was a net loss (replay 129->159 s), reverted, saved in runs/T0.4e/saved; redesign after T0.6c | `runbooks/T0.4a-*.md` |
+| T0.5 | Portable baseline interpreter crash (PBL): reproduce, locate, fix or keep off | S8 | pi `t01` | T0.3 | parked: PBL stays off | `runbooks/T0.5a-*.md` |
+| T2.0 | Browser spike: SDL2 + WebGL2 on PROXY_TO_PTHREAD + OffscreenCanvas + emscripten_set_main_loop | S1,S8 | pi `t10` | T0.6 | done: Petra in a browser Web Worker via JSPI (T0.6b) | S6,S8 | supervisor (inline) + pi checks | T2.2a | design |  |
 | T1.0 | done: main thread 60 FPS; pthread variant fails (T2.0b JSPI spike running) | `runbooks/T2.0-*.md` |
 | T4.3a | Data size inventory per folder (light profile input) | S7 | pi `t41` | T4.1 | done (supervisor read runs/T4.3a-*.txt) | `runbooks/T4.3a-*.md` |
 | T1.0 | Local emsdk + pthread smoke test in Node | S1 | pi `t10` | — | done (verified) | `runbooks/T1.0-*.md` → `reports/T1.0.md` |
-| T1.1 | Emscripten premake toolchain (pthreads, PROXY_TO_PTHREAD, OffscreenCanvas, 4 GB, wasm EH) | S1 | pi `t10` | T0.2 headers, premake fix | E1 retry running (t10) | `reports/T1.1-E1.md` |
+| T1.1 | Emscripten premake toolchain (pthreads, PROXY_TO_PTHREAD, OffscreenCanvas, 4 GB, wasm EH) | S1 | pi `t10` | T0.2 headers, premake fix | done (engine links, runs in Node and Chrome) | `reports/T1.1-E1.md` |
 | T1.2 | Third-party libs → wasm (zlib, png, xml2, freetype, ogg/vorbis, fmt, sodium, ICU) | S1 | pi `t10` | — | done (verified: ports + libxml2/fmt/libsodium/enet in `wasm/deps/prefix`) | `reports/T1.2.md` |
-| T1.3 | Remove/stub Atlas, FCollada, nvtt, miniupnpc, gloox, curl/mod.io, crash handler (T1.3a = read-only inventory) | S1 | pi `t13` | — | in progress (T1.3a) | `runbooks/T1.3-*.md` → `reports/T1.3a.md` |
-| T1.4 | `lib/sysdep` emscripten platform | S1 | pi | T1.1 | pending | |
-| T2.1 | SDL2 window/input in browser | S1 | supervisor (inline) | T1.4 | partial: canvas + mouse clicks work (CDP-driven); keyboard, fullscreen, resize pending | a35fa84 |
+| T1.3 | Remove/stub Atlas, FCollada, nvtt, miniupnpc, gloox, curl/mod.io, crash handler (T1.3a = read-only inventory) | S1 | pi `t13` | — | done (stubs in place) | `runbooks/T1.3-*.md` → `reports/T1.3a.md` |
+| T1.4 | `lib/sysdep` emscripten platform | S1 | pi | T1.1 | done (emscripten sysdep layer) | |
+| T2.1 | SDL2 window/input in browser | S1 | supervisor (inline) | T1.4 | partial: clicks, keys, live resize (T2.1b) work; clicks after resize T2.1c running; fullscreen pending | a35fa84 |
 | T2.2 | Main loop in the browser (main thread + JSPI frame yield, per T2.0b) | S1 | supervisor (inline) | T1.1 | done: menu, setup and a 4-player skirmish render in Chrome | 859ab31, a35fa84 |
-| T2.3 | Audio via Emscripten OpenAL | S1 | pi | T1.2 | pending | |
-| T2.4 | User data persistence (OPFS/IDBFS) | S1 | pi | T1.4 | pending | |
-| T3.1 | WebGL2 backend from the GL/GLES backend | S1 | pi | T0.1 | pending | |
-| T3.2 | Shaders → GLSL ES 3.00 | S1 | pi | T3.1 | pending | |
-| T3.3 | DDS via S3TC extension; KTX2/Basis later | S1 | pi | T3.1 | pending | |
+| T2.3 | Audio via Emscripten OpenAL | S1 | pi | T1.2 | pending (audio device names error at boot) | |
+| T2.4 | User data persistence (OPFS/IDBFS) | S1 | pi | T1.4 | done: IDBFS persistence (2c9189b) | |
+| T3.1 | WebGL2 backend from the GL/GLES backend | S1 | pi | T0.1 | done: WebGL2 backend (0016) | |
+| T3.2 | Shaders → GLSL ES 3.00 | S1 | pi | T3.1 | done: GLSL ES 3.00 + shadows (4f09161, 0020) | |
+| T3.3 | DDS via S3TC extension; KTX2/Basis later | S1 | pi | T3.1 | pending: DDS via S3TC works; texture download is 75% of a match (T4.3i) | |
 | T3.4 | Web graphics defaults | S1 | pi | T3.1 | pending | |
 | T4.1 | Zip manifest (per-file data offsets) for HTTP Range streaming — replaces repacking | S1 | pi `t41` | — | done (verified) | `runbooks/T4.1-*.md` → `reports/T4.1.md` |
-| T4.2 | Streaming VFS + OPFS cache | S1 | supervisor (inline) | T4.1,T1.4 | partial: HTTP Range block reads via JSPI done (menu 33 MB/22 req, skirmish 705 MB/577 req); persistent cache, smaller blocks, prefetch pending | a35fa84 |
-| T4.3 | Light data profile | S7 | pi | T4.1 | pending | |
-| T4.4 | Hosting with COOP/COEP | S1 | pi | T4.1 | pending | |
-| T5.1 | Boot to main menu in Chrome | S7 | supervisor + pi | F1–F4 | pending | |
-| T5.2 | Skirmish vs AI playable | S7 | supervisor + pi | T5.1 | pending | |
+| T4.2 | Streaming VFS + OPFS cache | S1 | supervisor (inline) | T4.1,T1.4 | partial: HTTP Range 64 KiB blocks + Cache Storage (6ef2612); OPFS not needed so far | a35fa84 |
+| T4.3 | Light data profile | S7 | pi | T4.1 | partial: ICU 4.5 MB (c50502c), map index (bb3f1ac) 365->289 MB; T4.3j deflated archive running | |
+| T4.4 | Hosting with COOP/COEP | S1 | pi | T4.1 | pending: needs user OK | |
+| T5.1 | Boot to main menu in Chrome | S7 | supervisor + pi | F1–F4 | done: main menu in Chrome | |
+| T5.2 | Skirmish vs AI playable | S7 | supervisor + pi | T5.1 | done: skirmish vs Petra playable in Chrome | |
 | T5.3 | Reference replays deterministic in browser | S6 | pi | T5.2 | pending | |
-| T6.1 | Profiling; Petra AI in worker | S7 | pi | T5.2 | pending | |
+| T6.1 | Profiling; Petra AI in worker | S7 | pi | T5.2 | partial: Petra in worker works; T0.6c 30-min match running (tsk) | |
 | T6.2 | Memory under 4 GB or Memory64 | S7 | pi | T5.2 | pending | |
 | T6.3 | Route B (only if gate fails) | S6 | ask user | T0.3 | pending | |
 | T7.1 | Networking: WebRTC or WebSocket relay | S1 | pi | T5.2 | pending | |
 | T7.2 | Lobby | S1 | pi | T7.1 | pending | |
-| T8.1 | License compliance (GPL-2+, CC-BY-SA 3.0, trademark) | S1 | supervisor | — | pending | |
-| T8.2 | Browser matrix + e2e | S7 | pi | T5.2 | pending | |
+| T8.1 | License compliance (GPL-2+, CC-BY-SA 3.0, trademark) | S1 | supervisor | — | partial: licenses page shipped (2c9189b); SOURCE_URL at hosting | |
+| T8.2 | Browser matrix + e2e | S7 | pi | T5.2 | pending: Firefox not installed; Safari 27 beta needed for JSPI | |
 | T2.3a | Audio: resume OpenAL AudioContexts on first input | S1,S8 | pi `t01` (wave 4, parallel unit, edits web-env.pre.js) | — | done, no change needed: the contexts were already `suspended` → `running` after the first click before the change (Emscripten's OpenAL resumes them itself); change reverted | `runbooks/T2.3a-*.md` |
 | T0.4c | AI worker callbacks broken down by name (input for Q2 batching) | S8 | pi `t02` (wave 4, edits ai-worker.js stats only) | T0.6 | done: commands identical (aicmp 0); 4 resource callbacks (qi 90/89, GetCurrentAmount, GetCarryingStatus, GetNumGatherers) = ~24 of 26 s; slowest request is the one-off gamestateInit (378 ms), steady compute ≤ 85 ms | `runbooks/T0.4c-*.md` |
-| T3.2a | GLSL ES 3.00 + shadow sampler inventory (read-only) | S1,S8 | pi `t10` (wave 4) | — | running | `runbooks/T3.2a-*.md` |
-| T8.1a | License and trademark inventory (read-only) | S1 | pi `t13` (wave 4) | — | running | `runbooks/T8.1a-*.md` |
+| T3.2a | GLSL ES 3.00 + shadow sampler inventory (read-only) | S1,S8 | pi `t10` (wave 4) | — | done | `runbooks/T3.2a-*.md` |
+| T8.1a | License and trademark inventory (read-only) | S1 | pi `t13` (wave 4) | — | done | `runbooks/T8.1a-*.md` |
 | T4.3b | First-visit download size, compression, ICU filter feasibility | S7,S8 | pi `t41` (wave 4) | T4.2 | done (reports/T4.3b.md) | `runbooks/T4.3b-*.md` |
 | T2.1a | Keyboard and window-size test in Chrome (test only) | S1,S8 | pi `tsk` (wave 4) | T2.2 | done (reports/T2.1a.md) | `runbooks/T2.1a-*.md` |
 | T0.6b | Remote AI in the browser (Web Worker + JSPI) and web build re-verify | S6,S8 | supervisor (inline) | T0.6 | done (opt-in `?ai=remote`): skirmish in Chrome (GPU), 744 AI computations in ~3 min, 3.6 ms mean, max 506 ms (one-off init), 59.9 fps, no errors; default-on pending a longer match | |
-| T3.2c | Blocky shadows on WebGL2: find and fix (GLES-guarded) | S1,S8 | pi `t10` (wave 5) | T3.2b | running | `runbooks/T3.2c-*.md` |
-| T0.4e | One resource snapshot per AI computation (aicmp must stay 0) | S8 | pi `t02` (wave 5) | T0.4d | running | `runbooks/T0.4e-*.md` |
-| T4.3c | Breakdown of the 426 MB streamed before the first match | S7,S8 | pi `t41` (wave 5) | T4.3b | running | `runbooks/T4.3c-*.md` |
-| T4.3d | ICU usage and filtered data file proposal (read-only) | S7,S8 | pi `t13` (wave 5) | T4.3b | running | `runbooks/T4.3d-*.md` |
-| T2.4b | IDBFS persistence of user data and config | S1,S8 | pi `t01` (wave 5) | T2.4a | running | `runbooks/T2.4b-*.md` |
-| T0.6c | 30-minute browser match with remote AI vs in-process | S8 | pi `tsk` (wave 5) | T0.6b | running | `runbooks/T0.6c-*.md` |
+| T3.2c | Blocky shadows on WebGL2: find and fix (GLES-guarded) | S1,S8 | pi `t10` (wave 5) | T3.2b | done (4f09161) | `runbooks/T3.2c-*.md` |
+| T0.4e | One resource snapshot per AI computation (aicmp must stay 0) | S8 | pi `t02` (wave 5) | T0.4d | done: net loss, not committed | `runbooks/T0.4e-*.md` |
+| T4.3c | Breakdown of the 426 MB streamed before the first match | S7,S8 | pi `t41` (wave 5) | T4.3b | done | `runbooks/T4.3c-*.md` |
+| T4.3d | ICU usage and filtered data file proposal (read-only) | S7,S8 | pi `t13` (wave 5) | T4.3b | done | `runbooks/T4.3d-*.md` |
+| T2.4b | IDBFS persistence of user data and config | S1,S8 | pi `t01` (wave 5) | T2.4a | done (2c9189b) | `runbooks/T2.4b-*.md` |
+| T4.3h | Map settings index (game setup without downloading every map) | S7,S8 | pi `t41` | T4.3f | done (bb3f1ac, 0021) | `runbooks/T4.3h-*.md` |
+| T2.1b | Live resize | S1,S8 | pi `t01` | T2.1a | done: canvas follows, 60 fps (c46213d) | `runbooks/T2.1b-*.md` |
+| T2.1c | Clicks after a live resize | S1,S8 | pi `t01` (wave 6) | T2.1b | running | `runbooks/T2.1c-*.md` |
+| T4.3j | Serve a deflated public.zip (lossless, textures 0.58) | S7,S8 | pi `t41` (wave 6) | T4.3h | running | `runbooks/T4.3j-*.md` |
+| T0.6c | 30-minute browser match with remote AI vs in-process | S8 | pi `tsk` (wave 5) | T0.6b | rerun running (fresh build) | `runbooks/T0.6c-*.md` |
 
 ## Log
 
@@ -112,3 +116,4 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 - L33 (2026-11-07) Wave 4 results so far. T3.2a (t10): only 5 of 82 shader files use GLSL 1.00-only constructs, almost all in 4 common headers, so ES 3.00 = one prelude in ShaderProgram.cpp → T3.2b sent to t10. T2.3a (t01): audio already resumes on the first click; no change. T0.4c (t02): see the task row; next is T0.4d (call sites, read-only) and then one batched resource query per AI computation (supervisor). New read-only tasks: T0.4d t02, T2.4a t01 (user-data paths for persistence).
 - L34 (2026-11-07) T0.6b done: the browser runs Petra in a Web Worker. zeroad_ai_remote_call is a JSPI async import awaiting Atomics.waitAsync; zeroad_ai_service is a JSPI export (callbacks can hit remote reads). The 44 AI modules are copied from public.zip to system-web/ai/modules with their VFS-root import specifiers rewritten to relative paths; the worker defines `global` like the engine realms. Evidence: runs/T0.6b/remote2 (evalfile aiStats, fps 59.9, screenshot). T8.1a done (licenses; T8.1b page sent to t13).
 - L35 (2026-11-08) Wave 4 read-only results: first visit 28.3 MB to menu, +426 MB to match (reload 7.1 / +73 MB); payload brotli 55 MB, ICU data 28.6 MB preloaded (T4.3b). User data/config paths under /home/web_user (T2.4a). Hot AI callbacks are per-entity qi+qicall pairs on ResourceSupply/ResourceGatherer (T0.4d). Licenses page drafted (T8.1b). T3.2b: zero shader errors but shadows still blocky (uncommitted). User: "lanzalo todo" → wave 5 launched with six pi workers (T3.2c, T0.4e, T4.3c, T4.3d, T2.4b, T0.6c); shared rules in runbooks/_wave5-common.md. Supervisor pending: wire licenses page into build after T2.4b (same build file).
+- L36 (2026-11-08): wave 5 results. Committed: IDBFS persistence + licenses page (2c9189b), WebGL2 shadows (4f09161, 0020), filtered ICU 28.6 -> 4.5 MB (c50502c), 64 KiB blocks (6ef2612), map settings index 365 -> 289 MB per match (bb3f1ac, 0021), chrome-shot resize (c46213d). T0.4e snapshot: identical AI commands, -92% callbacks, but replay 129 -> 159 s; reverted, saved in runs/T0.4e/saved. T2.1b: live resize works at 60 fps; click mapping after resize unproven (fixed-pixel menu). T4.3i (supervisor): textures are 217 of 289 MB; the release public.zip stores all 3.5 GB uncompressed; used textures deflate to 0.584. User: "sigue haciedno lo que puedas tu y cuando me necesites me avisas" → wave 6: T0.6c rerun (tsk), T2.1c (t01), T4.3j deflated archive (t41). Firefox is not installed (needed for T8.2; installing needs the user's OK).
