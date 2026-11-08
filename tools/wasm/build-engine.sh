@@ -20,6 +20,19 @@ export CFLAGS="-fwasm-exceptions" CXXFLAGS="-fwasm-exceptions"
 WASM_PROFILE="${WASM_PROFILE:-node}"
 OUT="$ROOT/upstream/binaries/system-wasm"
 COMMON_LDFLAGS="-O2 --profiling-funcs -fwasm-exceptions -Wl,--wrap=vswprintf -Wl,--wrap=swprintf -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=2MB"
+# ICU data: the web build preloads a filtered copy (runbooks/T4.3d, T4.3e) without collation, break
+# iteration, transliteration, converters, rbnf, units and locales the game does not ship
+# (28.6 MB -> 4.3 MB). Needs the host icupkg; without it the full file is used.
+ICU_FULL="$ROOT/tools/emsdk/upstream/emscripten/cache/ports/icu/icu/source/data/in/icudt68l.dat"
+ICU_DAT="$ICU_FULL"
+ICU_HOST="$ROOT/upstream/libraries/macos/icu"
+if [ "$WASM_PROFILE" = web ] && [ -x "$ICU_HOST/sbin/icupkg" ]; then
+  ICU_DAT="$OUT/icu/icudt68l.dat"
+  if [ ! -f "$ICU_DAT" ] || [ "$ROOT/tools/wasm/icu/remove.txt" -nt "$ICU_DAT" ]; then
+    mkdir -p "$OUT/icu"; rm -f "$ICU_DAT"
+    DYLD_LIBRARY_PATH="$ICU_HOST/lib" "$ICU_HOST/sbin/icupkg" -r "$ROOT/tools/wasm/icu/remove.txt" "$ICU_FULL" "$ICU_DAT"
+  fi
+fi
 case "$WASM_PROFILE" in
   node) export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=8 -sENVIRONMENT=node,worker -sNODERAWFS=1 -sEXIT_RUNTIME=1 --pre-js $ROOT/tools/wasm/node-env.pre.js --js-library $ROOT/tools/wasm/node-lib.js" ;;
   web)
@@ -34,7 +47,7 @@ case "$WASM_PROFILE" in
       --preload-file $D/mods/mod/mod.zip@/0ad/binaries/data/mods/mod/mod.zip \
       --preload-file $D/mods/public/mod.json@/0ad/binaries/data/mods/public/mod.json \
       --preload-file $W/overlay/public@/0ad/binaries/data/mods/public \
-      --preload-file $ROOT/tools/emsdk/upstream/emscripten/cache/ports/icu/icu/source/data/in/icudt68l.dat@/icu/icudt68l.dat" ;;
+      --preload-file $ICU_DAT@/icu/icudt68l.dat" ;;
   *) echo "unknown WASM_PROFILE: $WASM_PROFILE" >&2; exit 2 ;;
 esac
 # Both profiles write the same output file: remove it so make relinks with this profile's flags.
