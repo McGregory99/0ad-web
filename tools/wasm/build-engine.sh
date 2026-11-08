@@ -81,10 +81,22 @@ if [ "$WASM_PROFILE" = web ] && [ $status -eq 0 ]; then
   cp -R "$ROOT/tools/wasm/web/licenses" "$WEB/licenses"
   # public.zip is streamed with HTTP Range requests (see tools/wasm/web-lib.js), not preloaded.
   PUBLIC_ZIP="$ROOT/upstream/binaries/data/mods/public/public.zip"
+  # The release archive stores every member uncompressed; the web build serves a deflated copy
+  # (tools/wasm/recompress-zip.py, lossless, the engine inflates it). WASM_PUBLIC_STORED=1 serves
+  # the original archive instead.
+  SERVED_ZIP="$(cd "$(dirname "$PUBLIC_ZIP")" && pwd -P)/public.zip"
+  if [ "${WASM_PUBLIC_STORED:-0}" != 1 ]; then
+    DEFLATED_ZIP="$OUT/public-deflate.zip"
+    if [ ! -f "$DEFLATED_ZIP" ] || [ "$PUBLIC_ZIP" -nt "$DEFLATED_ZIP" ] || \
+       [ "$ROOT/tools/wasm/recompress-zip.py" -nt "$DEFLATED_ZIP" ]; then
+      python3 -I "$ROOT/tools/wasm/recompress-zip.py" "$PUBLIC_ZIP" "$DEFLATED_ZIP"
+    fi
+    SERVED_ZIP="$(cd "$OUT" && pwd -P)/public-deflate.zip"
+  fi
   mkdir -p "$WEB/mods/public"
-  ln -sf "$(cd "$(dirname "$PUBLIC_ZIP")" && pwd -P)/public.zip" "$WEB/mods/public/public.zip"
+  ln -sf "$SERVED_ZIP" "$WEB/mods/public/public.zip"
   printf '[{"path": "/0ad/binaries/data/mods/public/public.zip", "url": "mods/public/public.zip", "size": %s}]\n' \
-    "$(stat -f %z -L "$PUBLIC_ZIP")" > "$WEB/remote-files.json"
+    "$(stat -f %z -L "$SERVED_ZIP")" > "$WEB/remote-files.json"
   # Remote AI (ZEROAD_AI_REMOTE=1, see web-lib.js): the worker scripts and the AI modules from
   # public.zip. The modules import each other with VFS-root specifiers ("simulation/ai/..."), which
   # browsers cannot resolve, so they are rewritten relative to ai/modules/simulation/ai/<name>/
