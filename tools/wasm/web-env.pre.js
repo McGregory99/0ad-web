@@ -1,8 +1,10 @@
 // Browser build (WASM_PROFILE=web): command-line arguments come from the page URL,
-// e.g. index.html?arg=-mod=mod&arg=-nosound. Without any, boot the "mod" mod only.
+// e.g. index.html?arg=-mod=mod&arg=-nosound. Without any, boot the game (public mod) in a
+// window: a page cannot enter fullscreen before a user gesture, so the game would otherwise
+// switch to fullscreen on the first click. Alt+Enter still toggles fullscreen.
 {
 	const args = new URLSearchParams(location.search).getAll('arg');
-	Module.arguments = args.length ? args : ['-mod=mod'];
+	Module.arguments = args.length ? args : ['-mod=public', '-conf=windowed:true'];
 }
 // Emscripten's ICU port links only ICU's stub data; the real data file is preloaded at /icu.
 Module.preRun = [].concat(Module.preRun || [], () => { ENV.ICU_DATA = '/icu'; });
