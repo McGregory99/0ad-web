@@ -15,3 +15,63 @@ Module.preRun = [].concat(Module.preRun || [], () => {
 		.catch((error) => err(`remote-files.json: ${error}`))
 		.finally(() => removeRunDependency('zeroad-remote-files'));
 });
+// Persist user data and config across reloads (runbooks/T2.4b): mount the two engine data folders on
+// Emscripten's IndexedDB filesystem. Cache and logs stay in memory. Main thread only (pthread workers
+// must not mount IDBFS); if IndexedDB is unavailable the game still boots.
+if (typeof window !== 'undefined' && (typeof ENVIRONMENT_IS_PTHREAD === 'undefined' || !ENVIRONMENT_IS_PTHREAD)) {
+	const zeroadIdbfsDirs = ['/home/web_user/.local/share/0ad', '/home/web_user/.config/0ad'];
+	// syncfs(false) mirrors memory into IndexedDB (it deletes stored files missing in memory), so it must
+	// never run before the stored files were loaded.
+	let zeroadIdbfsReady = false;
+	Module.preRun = [].concat(Module.preRun || [], () => {
+		addRunDependency('zeroad-idbfs');
+		const start = performance.now();
+		let mounted = true;
+		for (const dir of zeroadIdbfsDirs) {
+			try {
+				FS.mkdirTree(dir);
+				FS.mount(IDBFS, {}, dir);
+			} catch (error) {
+				mounted = false;
+				err(`IDBFS mount ${dir}: ${error}`);
+			}
+		}
+		if (!mounted) {
+			removeRunDependency('zeroad-idbfs');
+			return;
+		}
+		FS.syncfs(true, (error) => {
+			if (error) err(`IDBFS populate: ${error}`);
+			else {
+				zeroadIdbfsReady = true;
+				console.log(`[zeroad] IDBFS populate ${(performance.now() - start).toFixed(0)} ms`);
+			}
+			removeRunDependency('zeroad-idbfs');
+		});
+	});
+
+	let zeroadSyncRunning = false;
+	let zeroadSyncAgain = false;
+	const zeroadPersist = () => {
+		if (!zeroadIdbfsReady) return;
+		if (zeroadSyncRunning) {
+			zeroadSyncAgain = true;
+			return;
+		}
+		zeroadSyncRunning = true;
+		const start = performance.now();
+		FS.syncfs(false, (error) => {
+			zeroadSyncRunning = false;
+			if (error) err(`IDBFS persist: ${error}`);
+			else console.log(`[zeroad] IDBFS persist ${(performance.now() - start).toFixed(0)} ms`);
+			if (zeroadSyncAgain) {
+				zeroadSyncAgain = false;
+				zeroadPersist();
+			}
+		});
+	};
+	Module.zeroadPersist = zeroadPersist;
+	setInterval(zeroadPersist, 10000);
+	addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') zeroadPersist(); });
+	addEventListener('pagehide', () => zeroadPersist());
+}

@@ -26,6 +26,7 @@ case "$WASM_PROFILE" in
     W="$ROOT/tools/wasm/web"; D="$ROOT/upstream/binaries/data"
     export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=12 -sENVIRONMENT=web,worker -sJSPI=1 -sJSPI_EXPORTS=zeroad_ai_service -sEXIT_RUNTIME=0 \
       -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFULL_ES3=1 -sGL_ENABLE_GET_PROC_ADDRESS=1 \
+      -lidbfs.js -sEXPORTED_RUNTIME_METHODS=FS \
       --pre-js $ROOT/tools/wasm/web-env.pre.js --js-library $ROOT/tools/wasm/web-lib.js \
       --preload-file $W/pyrogenesis-exe-placeholder.txt@/0ad/binaries/system/pyrogenesis \
       --preload-file $D/config@/0ad/binaries/data/config \
@@ -52,6 +53,8 @@ if [ "$WASM_PROFILE" = web ] && [ $status -eq 0 ]; then
   mkdir -p "$WEB"
   cp "$OUT/pyrogenesis" "$WEB/pyrogenesis.js"
   cp "$OUT/pyrogenesis.wasm" "$OUT/pyrogenesis.data" "$ROOT/tools/wasm/web/index.html" "$WEB/"
+  rm -r "$WEB/licenses" 2>/dev/null || true
+  cp -R "$ROOT/tools/wasm/web/licenses" "$WEB/licenses"
   # public.zip is streamed with HTTP Range requests (see tools/wasm/web-lib.js), not preloaded.
   PUBLIC_ZIP="$ROOT/upstream/binaries/data/mods/public/public.zip"
   mkdir -p "$WEB/mods/public"

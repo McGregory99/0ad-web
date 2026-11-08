@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0 A.D. in the browser — licenses and source</title>
+<style>
+  body { font-family: Georgia, "Times New Roman", serif; line-height: 1.5; max-width: 60em; margin: 0 auto; padding: 1.5em; color: #222; background: #fdfdf8; }
+  h1 { font-size: 1.6em; border-bottom: 2px solid #8b6b3f; padding-bottom: .3em; }
+  h2 { font-size: 1.2em; margin-top: 1.8em; color: #6b4f27; }
+  table { border-collapse: collapse; width: 100%; font-size: .95em; }
+  th, td { border: 1px solid #cbc3b2; padding: .35em .5em; text-align: left; vertical-align: top; }
+  th { background: #efe8da; }
+  a { color: #6b4f27; }
+  .note { font-size: .9em; color: #555; }
+</style>
+</head>
+<body>
+
+<h1>0 A.D. in the browser — licenses and source</h1>
+
+<p>This is an unofficial browser port of <strong>0 A.D.</strong>, the free, open-source
+real-time strategy game by Wildfire Games (<a href="http://www.wildfiregames.com/">http://www.wildfiregames.com/</a>).
+It is <strong>not made or endorsed by Wildfire Games</strong>. All game code and content
+belong to Wildfire Games and its contributors and are used here under the licenses below.</p>
+
+<h2>Engine code</h2>
+<p>The Pyrogenesis engine (<code>source/</code>) and the game data (<code>binaries/data/</code>)
+are licensed under the <strong>GNU General Public License, version 2 or later</strong>
+(GPL-2.0-or-later). Full text: <a href="texts/engine-gpl-2.0.txt">texts/engine-gpl-2.0.txt</a>.
+Parts of the engine library (<code>source/lib/</code>) are under the MIT license:
+<a href="texts/engine-mit.txt">texts/engine-mit.txt</a>.</p>
+<p>Source code of this build: SOURCE_URL</p>
+
+<h2>Game art and audio</h2>
+<p>Game art and audio in <code>public.zip</code> and <code>mod.zip</code> are
+Copyright &copy; Wildfire Games and licensed under
+<strong>Creative Commons Attribution-ShareAlike 3.0</strong>
+(<a href="https://creativecommons.org/licenses/by-sa/3.0/">https://creativecommons.org/licenses/by-sa/3.0/</a>).
+Attribution: <strong>Wildfire Games</strong> (<a href="http://www.wildfiregames.com/">http://www.wildfiregames.com/</a>).
+Modifications to these files must be released under the same CC-BY-SA 3.0 license.</p>
+<ul>
+  <li>Art license: <a href="texts/art.txt">texts/art.txt</a></li>
+  <li>Audio license: <a href="texts/audio.txt">texts/audio.txt</a></li>
+  <li>Random map data, NASA Blue Marble imagery and OpenStreetMap heightmaps: <a href="texts/maps.txt">texts/maps.txt</a></li>
+</ul>
+
+<h2>Fonts</h2>
+<ul>
+  <li>DejaVu Sans / DejaVu Sans Mono — Bitstream Vera Fonts license and Arev Fonts license:
+      <a href="texts/dejavu.txt">texts/dejavu.txt</a></li>
+  <li>FreeFont (FreeSans, FreeMono) — GNU GPL version 3 or later with font embedding exception:
+      <a href="texts/freefont.txt">texts/freefont.txt</a></li>
+  <li>Libertine / Biolinum (LinBiolinum) — GNU GPL version 3 or later with font embedding exception:
+      <a href="texts/libbiolinum.txt">texts/libbiolinum.txt</a></li>
+  <li>Source Han Sans — SIL Open Font License 1.1 (Reserved Font Name "Source"):
+      <a href="texts/source-han-sans.txt">texts/source-han-sans.txt</a></li>
+  <li>Which font file uses which license: <a href="texts/fonts.txt">texts/fonts.txt</a></li>
+</ul>
+
+<h2>Libraries compiled into the game</h2>
+<table>
+  <thead>
+    <tr><th>Component</th><th>License</th><th>Text</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Pyrogenesis engine + game data</td><td>GPL-2.0-or-later</td><td><a href="texts/engine-gpl-2.0.txt">texts/engine-gpl-2.0.txt</a></td></tr>
+    <tr><td>Engine library (<code>source/lib/</code>)</td><td>MIT</td><td><a href="texts/engine-mit.txt">texts/engine-mit.txt</a></td></tr>
+    <tr><td>jsonspirit</td><td>MIT</td><td><a href="texts/jsonspirit.txt">texts/jsonspirit.txt</a></td></tr>
+    <tr><td>tinygettext</td><td>zlib</td><td><a href="texts/tinygettext.txt">texts/tinygettext.txt</a></td></tr>
+    <tr><td>VulkanMemoryAllocator (vma)</td><td>MIT</td><td><a href="texts/vma.txt">texts/vma.txt</a></td></tr>
+    <tr><td>mongoose</td><td>MIT</td><td><a href="texts/engine-mit.txt">texts/engine-mit.txt</a></td></tr>
+    <tr><td>mikktspace</td><td>zlib</td><td><a href="texts/zlib.txt">texts/zlib.txt</a></td></tr>
+    <tr><td>encryption (pkcs5_pbkdf2)</td><td>GPL-2.0-or-later, ISC, MIT</td><td><a href="texts/engine-gpl-2.0.txt">texts/engine-gpl-2.0.txt</a></td></tr>
+    <tr><td>SpiderMonkey 128 (mozjs)</td><td>MPL 2.0</td><td><a href="texts/spidermonkey.txt">texts/spidermonkey.txt</a></td></tr>
+    <tr><td>fmt 7.1.3</td><td>MIT</td><td><a href="texts/fmt.txt">texts/fmt.txt</a></td></tr>
+    <tr><td>ENet 1.3.18</td><td>MIT</td><td><a href="texts/enet.txt">texts/enet.txt</a></td></tr>
+    <tr><td>libsodium 1.0.20</td><td>ISC</td><td><a href="texts/libsodium.txt">texts/libsodium.txt</a></td></tr>
+    <tr><td>libxml2 2.13.5</td><td>MIT-style</td><td><a href="texts/libxml2.txt">texts/libxml2.txt</a></td></tr>
+    <tr><td>zlib 1.3.2</td><td>zlib</td><td><a href="texts/zlib.txt">texts/zlib.txt</a></td></tr>
+    <tr><td>libpng 1.6.59</td><td>libpng License v2</td><td><a href="texts/libpng.txt">texts/libpng.txt</a></td></tr>
+    <tr><td>FreeType 2.14.3</td><td>FreeType License or GPL-2.0 (dual)</td><td><a href="texts/freetype.txt">texts/freetype.txt</a></td></tr>
+    <tr><td>ICU</td><td>Unicode/ICU license</td><td><a href="texts/icu.txt">texts/icu.txt</a></td></tr>
+    <tr><td>Ogg (libogg 1.3.5)</td><td>BSD-3-clause (Xiph.org)</td><td><a href="texts/ogg.txt">texts/ogg.txt</a></td></tr>
+    <tr><td>Vorbis (libvorbis 1.3.7)</td><td>BSD-3-clause (Xiph.org)</td><td><a href="texts/vorbis.txt">texts/vorbis.txt</a></td></tr>
+    <tr><td>SDL2 2.32.10</td><td>zlib</td><td><a href="texts/sdl2.txt">texts/sdl2.txt</a></td></tr>
+    <tr><td>Boost headers</td><td>Boost Software License 1.0</td><td><a href="texts/boost.txt">texts/boost.txt</a></td></tr>
+    <tr><td>OpenAL (Emscripten built-in)</td><td>MIT / University of Illinois/NCSA (Emscripten)</td><td><a href="texts/emscripten.txt">texts/emscripten.txt</a></td></tr>
+    <tr><td>libcurl (stub build, headers only)</td><td>curl license</td><td><a href="texts/curl.txt">texts/curl.txt</a></td></tr>
+    <tr><td>Emscripten glue code (<code>pyrogenesis.js</code>)</td><td>MIT / University of Illinois/NCSA</td><td><a href="texts/emscripten.txt">texts/emscripten.txt</a></td></tr>
+    <tr><td>dbghelp.dll</td><td>Proprietary (Microsoft) — not part of this web build</td><td class="note">not shipped</td></tr>
+  </tbody>
+</table>
+<p class="note">mongoose and mikktspace ship no separate license file in this source tree; the
+licenses named in <code>LICENSE.md</code> are linked instead (MIT and zlib respectively).
+The libcurl text is the curl license; this build links a stub, not curl code.</p>
+
+<h2>SpiderMonkey</h2>
+<p>SpiderMonkey 128 (Mozilla's JavaScript engine, built for WebAssembly) is licensed under the
+<strong>Mozilla Public License 2.0</strong>:
+<a href="texts/spidermonkey.txt">texts/spidermonkey.txt</a> (the license file points to
+<code>toolkit/content/license.html</code> in the SpiderMonkey source).
+The source code of SpiderMonkey used in this build is part of SOURCE_URL.
+No rights are granted to Mozilla Foundation trademarks, including the Firefox name or logo.</p>
+
+</body>
+</html>
