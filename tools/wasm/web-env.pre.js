@@ -7,7 +7,12 @@
 	Module.arguments = args.length ? args : ['-mod=public', '-conf=windowed:true'];
 }
 // Emscripten's ICU port links only ICU's stub data; the real data file is preloaded at /icu.
-Module.preRun = [].concat(Module.preRun || [], () => { ENV.ICU_DATA = '/icu'; });
+Module.preRun = [].concat(Module.preRun || [], () => {
+	ENV.ICU_DATA = '/icu';
+	// SpiderMonkey 128's portable baseline interpreter crashes in long games (GC tracing defect,
+	// reports T0.5a and T0.6c), so the browser build keeps it off like the Node runs do.
+	ENV.JIT_OPTION_portableBaselineInterpreter = 'false';
+});
 // Remote files (see web-lib.js): remote-files.json lists [{path, url, size}] next to the page.
 Module.preRun = [].concat(Module.preRun || [], () => {
 	addRunDependency('zeroad-remote-files');
