@@ -1,11 +1,36 @@
 // Static file server for browser tests: COOP/COEP headers (needed for SharedArrayBuffer/pthreads)
 // and HTTP Range support. Usage: node serve.mjs <root-dir> [port]
+// Env SERVE_KBPS limits the total response bandwidth (kilobits per second, shared by all
+// connections) and SERVE_LATENCY_MS delays each response, to emulate a real network.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
 const root = path.resolve(process.argv[2] || '.');
 const port = Number(process.argv[3] || 8080);
+const kbps = Number(process.env.SERVE_KBPS || 0);
+const latencyMs = Number(process.env.SERVE_LATENCY_MS || 0);
+const bytesPerMs = kbps * 1000 / 8 / 1000;
+let nextFree = 0;
+// One shared FIFO link: each chunk waits until the link has sent everything queued before it.
+const reserve = (n) => {
+	const now = performance.now();
+	nextFree = Math.max(now, nextFree) + n / bytesPerMs;
+	return new Promise((r) => setTimeout(r, nextFree - now));
+};
+async function send(res, stream) {
+	if (latencyMs) await new Promise((r) => setTimeout(r, latencyMs));
+	if (!bytesPerMs) { stream.pipe(res); return; }
+	res.on('close', () => stream.destroy());
+	try {
+		for await (const chunk of stream) {
+			await reserve(chunk.length);
+			if (res.destroyed) return;
+			if (!res.write(chunk)) await new Promise((r) => res.once('drain', r));
+		}
+		res.end();
+	} catch { res.destroy(); }
+}
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json' };
 
 http.createServer((req, res) => {
@@ -28,10 +53,10 @@ http.createServer((req, res) => {
 			const end = m[2] ? Math.min(Number(m[2]), st.size - 1) : st.size - 1;
 			if (start > end) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); res.end(); return; }
 			res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1 });
-			fs.createReadStream(file, { start, end }).pipe(res);
+			send(res, fs.createReadStream(file, { start, end, highWaterMark: 16384 }));
 			return;
 		}
 		res.writeHead(200, { ...headers, 'Content-Length': st.size });
-		fs.createReadStream(file).pipe(res);
+		send(res, fs.createReadStream(file, { highWaterMark: 16384 }));
 	});
 }).listen(port, '127.0.0.1', () => console.log(`serving ${root} on http://127.0.0.1:${port}/`));
