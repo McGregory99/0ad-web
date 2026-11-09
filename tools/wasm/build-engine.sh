@@ -55,7 +55,6 @@ case "$WASM_PROFILE" in
       --preload-file $D/config@/0ad/binaries/data/config \
       --preload-file $MAPSETTINGS_IDX@/0ad/mapsettings.idx \
       -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=zeroad_register_remote_files \
-      --preload-file $D/mods/mod/mod.zip@/0ad/binaries/data/mods/mod/mod.zip \
       --preload-file $D/mods/public/mod.json@/0ad/binaries/data/mods/public/mod.json \
       --preload-file $W/overlay/public@/0ad/binaries/data/mods/public \
       --preload-file $ICU_DAT@/icu/icudt68l.dat" ;;
@@ -79,24 +78,30 @@ if [ "$WASM_PROFILE" = web ] && [ $status -eq 0 ]; then
   cp "$OUT/pyrogenesis.wasm" "$OUT/pyrogenesis.data" "$ROOT/tools/wasm/web/index.html" "$WEB/"
   rm -r "$WEB/licenses" 2>/dev/null || true
   cp -R "$ROOT/tools/wasm/web/licenses" "$WEB/licenses"
-  # public.zip is streamed with HTTP Range requests (see tools/wasm/web-lib.js), not preloaded.
+  # The mod archives are streamed with HTTP Range requests (see tools/wasm/web-lib.js), not
+  # preloaded: mod.zip alone is 89 MB, 47 MB of it CJK fonts only some locales load. The release
+  # archives store every member uncompressed; the web build serves deflated copies
+  # (tools/wasm/recompress-zip.py, lossless, the engine inflates them). WASM_PUBLIC_STORED=1 serves
+  # the original archives instead.
   PUBLIC_ZIP="$ROOT/upstream/binaries/data/mods/public/public.zip"
-  # The release archive stores every member uncompressed; the web build serves a deflated copy
-  # (tools/wasm/recompress-zip.py, lossless, the engine inflates it). WASM_PUBLIC_STORED=1 serves
-  # the original archive instead.
-  SERVED_ZIP="$(cd "$(dirname "$PUBLIC_ZIP")" && pwd -P)/public.zip"
-  if [ "${WASM_PUBLIC_STORED:-0}" != 1 ]; then
-    DEFLATED_ZIP="$OUT/public-deflate.zip"
-    if [ ! -f "$DEFLATED_ZIP" ] || [ "$PUBLIC_ZIP" -nt "$DEFLATED_ZIP" ] || \
-       [ "$ROOT/tools/wasm/recompress-zip.py" -nt "$DEFLATED_ZIP" ]; then
-      python3 -I "$ROOT/tools/wasm/recompress-zip.py" "$PUBLIC_ZIP" "$DEFLATED_ZIP"
+  REMOTE_JSON="["
+  for MOD in mod public; do
+    MOD_ZIP="$ROOT/upstream/binaries/data/mods/$MOD/$MOD.zip"
+    SERVED_ZIP="$(cd "$(dirname "$MOD_ZIP")" && pwd -P)/$MOD.zip"
+    if [ "${WASM_PUBLIC_STORED:-0}" != 1 ]; then
+      DEFLATED_ZIP="$OUT/$MOD-deflate.zip"
+      if [ ! -f "$DEFLATED_ZIP" ] || [ "$MOD_ZIP" -nt "$DEFLATED_ZIP" ] || \
+         [ "$ROOT/tools/wasm/recompress-zip.py" -nt "$DEFLATED_ZIP" ]; then
+        python3 -I "$ROOT/tools/wasm/recompress-zip.py" "$MOD_ZIP" "$DEFLATED_ZIP"
+      fi
+      SERVED_ZIP="$(cd "$OUT" && pwd -P)/$MOD-deflate.zip"
     fi
-    SERVED_ZIP="$(cd "$OUT" && pwd -P)/public-deflate.zip"
-  fi
-  mkdir -p "$WEB/mods/public"
-  ln -sf "$SERVED_ZIP" "$WEB/mods/public/public.zip"
-  printf '[{"path": "/0ad/binaries/data/mods/public/public.zip", "url": "mods/public/public.zip", "size": %s}]\n' \
-    "$(stat -f %z -L "$SERVED_ZIP")" > "$WEB/remote-files.json"
+    mkdir -p "$WEB/mods/$MOD"
+    ln -sf "$SERVED_ZIP" "$WEB/mods/$MOD/$MOD.zip"
+    [ "$REMOTE_JSON" = "[" ] || REMOTE_JSON="$REMOTE_JSON, "
+    REMOTE_JSON="$REMOTE_JSON{\"path\": \"/0ad/binaries/data/mods/$MOD/$MOD.zip\", \"url\": \"mods/$MOD/$MOD.zip\", \"size\": $(stat -f %z -L "$SERVED_ZIP")}"
+  done
+  printf '%s]\n' "$REMOTE_JSON" > "$WEB/remote-files.json"
   # Remote AI (ZEROAD_AI_REMOTE=1, see web-lib.js): the worker scripts and the AI modules from
   # public.zip. The modules import each other with VFS-root specifiers ("simulation/ai/..."), which
   # browsers cannot resolve, so they are rewritten relative to ai/modules/simulation/ai/<name>/
