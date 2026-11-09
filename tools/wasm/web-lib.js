@@ -41,8 +41,6 @@ addToLibrary({
 		// costs nothing). Key: zip member path (or the archive URL when it cannot be mapped).
 		remoteLog: {}, // path -> { reads, bytesRead, bytesFetched }
 		remoteLogEnabled: null, // tri-state: null = not read from the page URL yet
-		zipIndex: null, // lazily built { cdOfs, entries:[{ofs,name}] } from cached blocks
-		zipIndexFailed: false,
 		remoteLogging() {
 			if (ZeroADRemote.remoteLogEnabled === null)
 				ZeroADRemote.remoteLogEnabled = typeof location !== 'undefined' &&
@@ -73,9 +71,10 @@ addToLibrary({
 		},
 		// Map byte offsets to zip member names by walking the central directory that the
 		// engine has already read into the cache. Never reads from the network.
+		// Per archive, lazily built from cached blocks: remote.zipIndex = { cdOfs, entries:[{ofs,name}] }.
 		zipIndexFor(remote) {
-			if (ZeroADRemote.zipIndex || ZeroADRemote.zipIndexFailed)
-				return ZeroADRemote.zipIndex;
+			if (remote.zipIndex || remote.zipIndexFailed)
+				return remote.zipIndex;
 			const u16 = (a, p) => a[p] | (a[p + 1] << 8);
 			const u32 = (a, p) => (a[p] | (a[p + 1] << 8) | (a[p + 2] << 16) | (a[p + 3] << 24)) >>> 0;
 			const tailLen = Math.min(66000, remote.size);
@@ -89,14 +88,14 @@ addToLibrary({
 					break;
 				}
 			if (ecdr < 0) {
-				ZeroADRemote.zipIndexFailed = true;
+				remote.zipIndexFailed = true;
 				return null;
 			}
 			const numEntries = u16(tail, ecdr + 10);
 			const cdSize = u32(tail, ecdr + 12);
 			const cdOfs = u32(tail, ecdr + 16);
 			if (numEntries === 0xFFFF || cdSize === 0xFFFFFFFF || cdOfs === 0xFFFFFFFF) {
-				ZeroADRemote.zipIndexFailed = true; // zip64: not handled, fall back to the URL
+				remote.zipIndexFailed = true; // zip64: not handled, fall back to the URL
 				return null;
 			}
 			const cd = ZeroADRemote.cachedRange(remote, cdOfs, cdSize);
@@ -118,8 +117,8 @@ addToLibrary({
 				p += 46 + nameLen + extraLen + commentLen;
 			}
 			entries.sort((a, b) => a.ofs - b.ofs);
-			ZeroADRemote.zipIndex = { cdOfs, entries };
-			return ZeroADRemote.zipIndex;
+			remote.zipIndex = { cdOfs, entries };
+			return remote.zipIndex;
 		},
 		// Name of the zip member whose bytes contain <offset>.
 		attribute(remote, offset) {
@@ -139,7 +138,9 @@ addToLibrary({
 					hi = mid - 1;
 				}
 			}
-			return best >= 0 ? entries[best].name : '(zip local headers)';
+			const name = best >= 0 ? entries[best].name : '(zip local headers)';
+			// public.zip members keep their bare path; other archives are prefixed ("mod.zip:fonts/...").
+			return remote.url.endsWith('/public.zip') ? name : `${remote.url.slice(remote.url.lastIndexOf('/') + 1)}:${name}`;
 		},
 		logRead(remote, offset, count, fetched) {
 			const name = ZeroADRemote.attribute(remote, offset);
