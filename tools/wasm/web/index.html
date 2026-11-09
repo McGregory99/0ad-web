@@ -7,11 +7,17 @@
 	html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 	#canvas { display: block; width: 100vw; height: 100vh; }
 	#status { position: fixed; left: 8px; bottom: 8px; color: #ccc; font: 12px monospace; }
+	#unsupported { display: none; max-width: 36em; margin: 20vh auto 0; color: #ddd; font: 16px/1.5 sans-serif; }
 </style>
 </head>
 <body>
 <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
 <div id="status">Loading…</div>
+<div id="unsupported">
+	<h1>This browser cannot run 0 A.D. yet</h1>
+	<p>Missing: <span id="missing"></span>.</p>
+	<p>The game needs WebAssembly JSPI, WebGL 2 and cross-origin isolation. Use a recent Chrome or Edge.</p>
+</div>
 <script>
 	// Print full stacks for crashes (headless test runs only see console text).
 	Error.stackTraceLimit = 60;
@@ -28,6 +34,25 @@
 		preRun: [() => { if (new URLSearchParams(location.search).get('ai') !== 'local') ENV.ZEROAD_AI_REMOTE = '1'; }],
 	};
 </script>
-<script src="pyrogenesis.js"></script>
+<script>
+	// The engine suspends on every frame and on every remote file read with JSPI
+	// (tools/wasm/web-lib.js), so a browser without it cannot start the game at all.
+	const missing = [
+		typeof WebAssembly === 'object' && typeof WebAssembly.Suspending === 'function' ? null : 'WebAssembly JSPI',
+		document.createElement('canvas').getContext('webgl2') ? null : 'WebGL 2',
+		self.crossOriginIsolated ? null : 'cross-origin isolation (SharedArrayBuffer)',
+	].filter(Boolean);
+	if (missing.length) {
+		console.error('unsupported browser, missing: ' + missing.join(', '));
+		document.getElementById('missing').textContent = missing.join(', ');
+		document.getElementById('unsupported').style.display = 'block';
+		document.getElementById('status').remove();
+		document.getElementById('canvas').remove();
+	} else {
+		const script = document.createElement('script');
+		script.src = 'pyrogenesis.js';
+		document.body.append(script);
+	}
+</script>
 </body>
 </html>
