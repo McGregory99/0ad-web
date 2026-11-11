@@ -2,8 +2,12 @@
 // and HTTP Range support. Usage: node serve.mjs <root-dir> [port]
 // Env SERVE_KBPS limits the total response bandwidth (kilobits per second, shared by all
 // connections) and SERVE_LATENCY_MS delays each response, to emulate a real network.
+// Env SERVE_HOST sets the listen address (default 127.0.0.1; 0.0.0.0 serves the local network).
+// Env SERVE_TLS_CERT and SERVE_TLS_KEY (PEM files) serve HTTPS: other devices need it, because
+// browsers only allow cross-origin isolation on https or localhost.
 import fs from 'node:fs';
 import http from 'node:http';
+import https from 'node:https';
 import path from 'node:path';
 
 const root = path.resolve(process.argv[2] || '.');
@@ -33,7 +37,10 @@ async function send(res, stream) {
 }
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json' };
 
-http.createServer((req, res) => {
+const host = process.env.SERVE_HOST || '127.0.0.1';
+const tls = process.env.SERVE_TLS_CERT && process.env.SERVE_TLS_KEY
+	? { cert: fs.readFileSync(process.env.SERVE_TLS_CERT), key: fs.readFileSync(process.env.SERVE_TLS_KEY) } : null;
+const handler = (req, res) => {
 	const urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
 	let file = path.join(root, urlPath);
 	if (file !== root && !file.startsWith(root + path.sep)) { res.writeHead(403); res.end(); return; }
@@ -59,4 +66,6 @@ http.createServer((req, res) => {
 		res.writeHead(200, { ...headers, 'Content-Length': st.size });
 		send(res, fs.createReadStream(file, { highWaterMark: 16384 }));
 	});
-}).listen(port, '127.0.0.1', () => console.log(`serving ${root} on http://127.0.0.1:${port}/`));
+};
+(tls ? https.createServer(tls, handler) : http.createServer(handler))
+	.listen(port, host, () => console.log(`serving ${root} on ${tls ? 'https' : 'http'}://${host}:${port}/`));
