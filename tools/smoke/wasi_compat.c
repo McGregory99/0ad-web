@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
+#include <string.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 // wasi-libc: `#define CLOCK_MONOTONIC (&_CLOCK_MONOTONIC)`, a pointer to a struct.
@@ -18,6 +20,18 @@ int __wrap_clock_gettime(clockid_t id, struct timespec* ts) {
   else if ((uintptr_t)id == (uintptr_t)&_CLOCK_REALTIME) id = CLOCK_REALTIME;
   return __real_clock_gettime(id, ts);
 }
+
+// struct timeval differs: wasi-libc has a 64-bit tv_usec, Emscripten a 32-bit one followed by
+// 4 bytes of padding. SpiderMonkey (wasi headers) reads all 8 bytes, so Date.now() picked up stack
+// garbage and jumped by years between calls (the in-game menu animation never finished). Zero the
+// struct first: the padding then reads as the high half of a valid 64-bit value, and callers built
+// with Emscripten headers see the same struct as before.
+int __real_gettimeofday(struct timeval* restrict, void* restrict);
+int __wrap_gettimeofday(struct timeval* restrict tv, void* restrict tz) {
+  if (tv) memset(tv, 0, 16);
+  return __real_gettimeofday(tv, tz);
+}
+_Static_assert(sizeof(struct timeval) == 16, "Emscripten struct timeval layout changed");
 
 // wasi-libc exports `errno` as a thread-local variable; Emscripten uses
 // __errno_location(). With atomics enabled the wasi objects (and Rust's

@@ -4,4 +4,4 @@ Name: mozjs-128
 Description: SpiderMonkey 128 for wasm (0ad-web, experimental; run tools/wasm/package-mozjs.sh first)
 Version: 128.13.0
 Cflags: -I${objdir}/dist/include
-Libs: -L${libdir} -ljs_static -lmozglue_extra -ljsrust -lwasi_z -lwasi_compat -Wl,--wrap=clock_gettime
+Libs: -L${libdir} -ljs_static -lmozglue_extra -ljsrust -lwasi_z -lwasi_compat -Wl,--wrap=clock_gettime -Wl,--wrap=gettimeofday
