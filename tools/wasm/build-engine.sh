@@ -83,18 +83,26 @@ if [ "$WASM_PROFILE" = web ] && [ $status -eq 0 ]; then
   # archives store every member uncompressed; the web build serves deflated copies
   # (tools/wasm/recompress-zip.py, lossless, the engine inflates them). WASM_PUBLIC_STORED=1 serves
   # the original archives instead.
+  # Textures ship at medium resolution (T3.3): public.zip is served from public-medium.zip, whose
+  # DDS textures lack their top mip level (tools/wasm/trim-texture-mips.py, the archive-side
+  # equivalent of textures.quality = 1). WASM_TEXTURES=full serves full-resolution textures.
   PUBLIC_ZIP="$ROOT/upstream/binaries/data/mods/public/public.zip"
   REMOTE_JSON="["
   for MOD in mod public; do
     MOD_ZIP="$ROOT/upstream/binaries/data/mods/$MOD/$MOD.zip"
     SERVED_ZIP="$(cd "$(dirname "$MOD_ZIP")" && pwd -P)/$MOD.zip"
     if [ "${WASM_PUBLIC_STORED:-0}" != 1 ]; then
+      TOOL="$ROOT/tools/wasm/recompress-zip.py"
       DEFLATED_ZIP="$OUT/$MOD-deflate.zip"
-      if [ ! -f "$DEFLATED_ZIP" ] || [ "$MOD_ZIP" -nt "$DEFLATED_ZIP" ] || \
-         [ "$ROOT/tools/wasm/recompress-zip.py" -nt "$DEFLATED_ZIP" ]; then
-        python3 -I "$ROOT/tools/wasm/recompress-zip.py" "$MOD_ZIP" "$DEFLATED_ZIP"
+      if [ "$MOD" = public ] && [ "${WASM_TEXTURES:-medium}" != full ]; then
+        TOOL="$ROOT/tools/wasm/trim-texture-mips.py"
+        DEFLATED_ZIP="$OUT/$MOD-medium.zip"
       fi
-      SERVED_ZIP="$(cd "$OUT" && pwd -P)/$MOD-deflate.zip"
+      if [ ! -f "$DEFLATED_ZIP" ] || [ "$MOD_ZIP" -nt "$DEFLATED_ZIP" ] || \
+         [ "$TOOL" -nt "$DEFLATED_ZIP" ] || [ "$ROOT/tools/wasm/recompress-zip.py" -nt "$DEFLATED_ZIP" ]; then
+        python3 -I "$TOOL" "$MOD_ZIP" "$DEFLATED_ZIP"
+      fi
+      SERVED_ZIP="$(cd "$OUT" && pwd -P)/$(basename "$DEFLATED_ZIP")"
     fi
     mkdir -p "$WEB/mods/$MOD"
     ln -sf "$SERVED_ZIP" "$WEB/mods/$MOD/$MOD.zip"
