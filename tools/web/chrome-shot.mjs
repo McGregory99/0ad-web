@@ -17,7 +17,8 @@
 //     keydown:<key> / keyup:<key>   press or release a key only (hold keys across waits)
 // Keys: DOM key names (Escape, Enter, Tab, ArrowUp, F11, a, ...); code and keyCode are filled in.
 // Env CHROME_GPU=1 uses the real GPU (ANGLE Metal) instead of SwiftShader.
-// Env CHROME_W / CHROME_H set the viewport size (default 1280x720).
+// Env CHROME_W / CHROME_H set the viewport and screen size (default 1280x720); the screen size
+// matters for fullscreen, which SDL sizes from screen.width/height.
 // Audio is muted (--mute-audio) unless env CHROME_AUDIO=1; use that only for sound tests.
 // Writes <outdir>/console.log (console messages and exceptions, with seconds since start).
 import { spawn } from 'node:child_process';
@@ -109,7 +110,7 @@ handlers.push((msg) => {
 await s('Runtime.enable');
 await s('Log.enable');
 await s('Page.enable');
-await s('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
+await s('Emulation.setDeviceMetricsOverride', { width: W, height: H, screenWidth: W, screenHeight: H, deviceScaleFactor: 1, mobile: false });
 await s('Page.navigate', { url: `http://127.0.0.1:${port}/${query}` });
 
 // DOM key name -> [code, Windows virtual key code]; SDL reads code/keyCode, not key.
@@ -161,7 +162,7 @@ for (const step of script.split(',')) {
     await s('Page.reload', { ignoreCache: false });
     log('reload');
   } else if (op === 'resize') {
-    await s('Emulation.setDeviceMetricsOverride', { width: Number(a), height: Number(b), deviceScaleFactor: 1, mobile: false });
+    await s('Emulation.setDeviceMetricsOverride', { width: Number(a), height: Number(b), screenWidth: Number(a), screenHeight: Number(b), deviceScaleFactor: 1, mobile: false });
     log(`resize ${a}x${b}`);
   } else if (op === 'fps') {
     const expression = `new Promise((done) => {
