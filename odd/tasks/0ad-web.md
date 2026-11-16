@@ -39,7 +39,7 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 | T1.2 | Third-party libs → wasm (zlib, png, xml2, freetype, ogg/vorbis, fmt, sodium, ICU) | S1 | pi `t10` | — | done (verified: ports + libxml2/fmt/libsodium/enet in `wasm/deps/prefix`) | `reports/T1.2.md` |
 | T1.3 | Remove/stub Atlas, FCollada, nvtt, miniupnpc, gloox, curl/mod.io, crash handler (T1.3a = read-only inventory) | S1 | pi `t13` | — | done (stubs in place) | `runbooks/T1.3-*.md` → `reports/T1.3a.md` |
 | T1.4 | `lib/sysdep` emscripten platform | S1 | pi | T1.1 | done (emscripten sysdep layer) | |
-| T2.1 | SDL2 window/input in browser | S1 | supervisor (inline) | T1.4 | partial: clicks, keys, live resize (T2.1b) work; clicks after resize T2.1c running; fullscreen pending | a35fa84 |
+| T2.1 | SDL2 window/input in browser | S1 | supervisor (inline) | T1.4 | partial: clicks, keys, live resize (T2.1b) and clicks after resize (T2.1c) work; menu clock fixed (814e73a); fullscreen pending | a35fa84 |
 | T2.2 | Main loop in the browser (main thread + JSPI frame yield, per T2.0b) | S1 | supervisor (inline) | T1.1 | done: menu, setup and a 4-player skirmish render in Chrome | 859ab31, a35fa84 |
 | T2.3 | Audio via Emscripten OpenAL | S1 | pi | T1.2 | done (0d2e8ad, 0022): AudioContexts resume on the first click/key; device-name error removed; headless runs muted (d912335) | |
 | T2.4 | User data persistence (OPFS/IDBFS) | S1 | pi | T1.4 | done: IDBFS persistence (2c9189b) | |
@@ -49,18 +49,18 @@ Evidence from the shipped DMG (REA, 2026-11-06): `pyrogenesis` 86 MB arm64, stat
 | T3.4 | Web graphics defaults | S1 | pi | T3.1 | pending | |
 | T4.1 | Zip manifest (per-file data offsets) for HTTP Range streaming — replaces repacking | S1 | pi `t41` | — | done (verified) | `runbooks/T4.1-*.md` → `reports/T4.1.md` |
 | T4.2 | Streaming VFS + OPFS cache | S1 | supervisor (inline) | T4.1,T1.4 | partial: HTTP Range 64 KiB blocks + Cache Storage (6ef2612); OPFS not needed so far | a35fa84 |
-| T4.3 | Light data profile | S7 | pi | T4.1 | partial: ICU 4.5 MB (c50502c), map index (bb3f1ac) 365->289 MB; T4.3j deflated archive running | |
+| T4.3 | Light data profile | S7 | pi | T4.1 | partial: ICU 4.5 MB (c50502c), map index (bb3f1ac) 365->289 MB, deflated archive (T4.3j, 57df3ac) 289->186 MB, mod.zip streamed (1f838dc); textures remain the bulk (T3.3) | |
 | T4.4 | Hosting with COOP/COEP | S1 | pi | T4.1 | pending: needs user OK | |
 | T5.1 | Boot to main menu in Chrome | S7 | supervisor + pi | F1–F4 | done: main menu in Chrome | |
 | T5.2 | Skirmish vs AI playable | S7 | supervisor + pi | T5.1 | done: skirmish vs Petra playable in Chrome | |
 | T5.3 | Reference replays deterministic in browser | S6 | pi | T5.2 | pending | |
-| T6.1 | Profiling; Petra AI in worker | S7 | pi | T5.2 | partial: Petra in worker works; T0.6c 30-min match running (tsk) | |
-| T6.2 | Memory under 4 GB or Memory64 | S7 | pi | T5.2 | pending | |
+| T6.1 | Profiling; Petra AI in worker | S7 | pi | T5.2 | partial: Petra in a Web Worker is the default (T0.6d); 60-min match stable at ~60 fps (L38); slow AI turns still T0.4 | |
+| T6.2 | Memory under 4 GB or Memory64 | S7 | pi | T5.2 | done: 60-min 4-AI match peaks at 1197 MB wasm + 321 MB JS heap, flat for the last 25 min (runs/Q-long, L38 run); no Memory64 needed | |
 | T6.3 | Route B (only if gate fails) | S6 | ask user | T0.3 | pending | |
 | T7.1 | Networking: WebRTC or WebSocket relay | S1 | pi | T5.2 | pending | |
 | T7.2 | Lobby | S1 | pi | T7.1 | pending | |
 | T8.1 | License compliance (GPL-2+, CC-BY-SA 3.0, trademark) | S1 | supervisor | — | partial: licenses page shipped (2c9189b); SOURCE_URL at hosting | |
-| T8.2 | Browser matrix + e2e | S7 | pi | T5.2 | pending: Firefox not installed; Safari 27 beta needed for JSPI | |
+| T8.2 | Browser matrix + e2e | S7 | pi | T5.2 | partial: Chrome and Firefox 159 run the game (L39); Firefox vs Chrome speed comparison pending; Safari is T8.3 | |
 | T2.3a | Audio: resume OpenAL AudioContexts on first input | S1,S8 | pi `t01` (wave 4, parallel unit, edits web-env.pre.js) | — | done, no change needed: the contexts were already `suspended` → `running` after the first click before the change (Emscripten's OpenAL resumes them itself); change reverted | `runbooks/T2.3a-*.md` |
 | T0.4c | AI worker callbacks broken down by name (input for Q2 batching) | S8 | pi `t02` (wave 4, edits ai-worker.js stats only) | T0.6 | done: commands identical (aicmp 0); 4 resource callbacks (qi 90/89, GetCurrentAmount, GetCarryingStatus, GetNumGatherers) = ~24 of 26 s; slowest request is the one-off gamestateInit (378 ms), steady compute ≤ 85 ms | `runbooks/T0.4c-*.md` |
 | T3.2a | GLSL ES 3.00 + shadow sampler inventory (read-only) | S1,S8 | pi `t10` (wave 4) | — | done | `runbooks/T3.2a-*.md` |
