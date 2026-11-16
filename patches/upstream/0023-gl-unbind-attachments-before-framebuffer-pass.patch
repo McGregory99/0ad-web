@@ -1,0 +1,61 @@
+--- a/source/renderer/backend/gl/Framebuffer.h
++++ b/source/renderer/backend/gl/Framebuffer.h
+@@ -50,6 +50,10 @@
+ 
+ 	GLuint GetHandle() const { return m_Handle; }
+ 	GLbitfield GetAttachmentMask() const { return m_AttachmentMask; }
++	// Texture handles attached to this framebuffer (0 if none), so the command context can unbind
++	// them from sampler units before rendering into them (a feedback loop is an error in WebGL).
++	GLuint GetColorAttachmentHandle() const { return m_ColorAttachmentHandle; }
++	GLuint GetDepthStencilAttachmentHandle() const { return m_DepthStencilAttachmentHandle; }
+ 
+ 	AttachmentLoadOp GetColorAttachmentLoadOp() const { return m_ColorAttachmentLoadOp; }
+ 	AttachmentStoreOp GetColorAttachmentStoreOp() const { return m_ColorAttachmentStoreOp; }
+@@ -77,6 +81,8 @@
+ 	GLuint m_Handle = 0;
+ 	uint32_t m_Width = 0, m_Height = 0;
+ 	GLbitfield m_AttachmentMask = 0;
++	GLuint m_ColorAttachmentHandle = 0;
++	GLuint m_DepthStencilAttachmentHandle = 0;
+ 
+ 	CColor m_ClearColor;
+ 
+--- a/source/renderer/backend/gl/Framebuffer.cpp
++++ b/source/renderer/backend/gl/Framebuffer.cpp
+@@ -68,6 +68,7 @@
+ 	if (colorAttachment)
+ 	{
+ 		CTexture* colorAttachmentTexture = colorAttachment->texture->As<CTexture>();
++		framebuffer->m_ColorAttachmentHandle = colorAttachmentTexture->GetHandle();
+ 		ENSURE(device->IsFramebufferFormatSupported(colorAttachmentTexture->GetFormat()));
+ 		ENSURE(colorAttachmentTexture->GetUsage() & Renderer::Backend::ITexture::Usage::COLOR_ATTACHMENT);
+ 
+@@ -87,6 +88,7 @@
+ 	if (depthStencilAttachment)
+ 	{
+ 		CTexture* depthStencilAttachmentTexture = depthStencilAttachment->texture->As<CTexture>();
++		framebuffer->m_DepthStencilAttachmentHandle = depthStencilAttachmentTexture->GetHandle();
+ 		ENSURE(depthStencilAttachmentTexture->GetUsage() & Renderer::Backend::ITexture::Usage::DEPTH_STENCIL_ATTACHMENT);
+ 
+ 		framebuffer->m_Width = depthStencilAttachmentTexture->GetWidth();
+--- a/source/renderer/backend/gl/DeviceCommandContext.cpp
++++ b/source/renderer/backend/gl/DeviceCommandContext.cpp
+@@ -979,6 +979,18 @@
+ 	ENSURE(m_Framebuffer->GetHandle() == 0 || (m_Framebuffer->GetWidth() > 0 && m_Framebuffer->GetHeight() > 0));
+ 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, m_Framebuffer->GetHandle());
+ 	ogl_WarnIfError();
++	// A texture can still be bound to a sampler unit from an earlier pass. If a shader of this
++	// pass declares a sampler on that unit and the draw does not set it, the draw would read the
++	// texture it renders into: undefined in GL, and an INVALID_OPERATION that drops the draw in
++	// WebGL ("feedback loop formed between framebuffer and active texture").
++	for (const GLuint attachment : {m_Framebuffer->GetColorAttachmentHandle(), m_Framebuffer->GetDepthStencilAttachmentHandle()})
++	{
++		if (!attachment)
++			continue;
++		for (size_t unit = 0; unit < m_BoundTextures.size(); ++unit)
++			if (m_BoundTextures[unit].handle == attachment)
++				BindTexture(unit, m_BoundTextures[unit].target, 0);
++	}
+ 	if (m_Device->UseFramebufferInvalidating())
+ 	{
+ 		InvalidateFramebuffer(
