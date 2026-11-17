@@ -1,0 +1,164 @@
+diff --git a/source/ps/CLogger.cpp b/source/ps/CLogger.cpp
+index 5642da8b..6f57a320 100644
+--- a/source/ps/CLogger.cpp
++++ b/source/ps/CLogger.cpp
+@@ -36,6 +36,9 @@
+ #include "ps/Pyrogenesis.h"
+ 
+ #include <boost/algorithm/string/replace.hpp>
++#ifdef __EMSCRIPTEN__
++#include <emscripten/threading.h>
++#endif
+ #include <cstring>
+ #include <ctime>
+ #include <fstream>
+@@ -95,6 +98,7 @@ CLogger::~CLogger()
+ 
+ 	//Write closing text
+ 
++	WritePendingLines();
+ 	m_MainLog << "<p>Engine exited successfully on " << currentDate;
+ 	m_MainLog << " at " << currentTime << buffer << "</p>\n";
+ 
+@@ -110,6 +114,64 @@ static std::string ToHTML(const char* message)
+ 	return cmessage;
+ }
+ 
++// debug_printf writes to stdout, which (like any file write) blocks a thread other than the main
++// one in the browser build until the main thread serves it; see AppendLines. The line still
++// reaches the log files.
++static bool PrintsWithoutBlocking()
++{
++#ifdef __EMSCRIPTEN__
++	return emscripten_is_main_runtime_thread();
++#else
++	return true;
++#endif
++}
++
++void CLogger::AppendLines(const std::string& mainLine, const std::string& interestingLine)
++{
++#ifdef __EMSCRIPTEN__
++	// In the browser build a file write from any thread but the main one waits until the main
++	// thread serves it (Emscripten proxies file system calls synchronously), and the main thread
++	// can be busy for seconds (map loading, the first frames of a match). The network threads log
++	// every message they send or receive, so writing there stalls ENet until the peers time out.
++	// Lines logged off the main thread wait in memory for the main thread's next line or frame.
++	// The queue is capped for pages that render no frames for a long time (a hidden tab); lines
++	// beyond the cap are dropped from the files (they still reach the console and the screen).
++	if (!emscripten_is_main_runtime_thread())
++	{
++		constexpr size_t maxPending = 8 * 1024 * 1024;
++		if (m_PendingMainLog.size() + mainLine.size() <= maxPending)
++			m_PendingMainLog += mainLine;
++		if (m_PendingInterestingLog.size() + interestingLine.size() <= maxPending)
++			m_PendingInterestingLog += interestingLine;
++		return;
++	}
++	WritePendingLines();
++#endif
++	if (!interestingLine.empty())
++	{
++		m_InterestingLog << interestingLine;
++		m_InterestingLog.flush();
++	}
++	m_MainLog << mainLine;
++	m_MainLog.flush();
++}
++
++void CLogger::WritePendingLines()
++{
++	if (!m_PendingInterestingLog.empty())
++	{
++		m_InterestingLog << m_PendingInterestingLog;
++		m_InterestingLog.flush();
++		m_PendingInterestingLog.clear();
++	}
++	if (!m_PendingMainLog.empty())
++	{
++		m_MainLog << m_PendingMainLog;
++		m_MainLog.flush();
++		m_PendingMainLog.clear();
++	}
++}
++
+ void CLogger::WriteMessage(const char* message, bool doRender = false)
+ {
+ 	std::string cmessage = ToHTML(message);
+@@ -120,8 +182,7 @@ void CLogger::WriteMessage(const char* message, bool doRender = false)
+ //	if (m_UseDebugPrintf)
+ //		debug_printf("MESSAGE: %s\n", message);
+ 
+-	m_MainLog << "<p>" << cmessage << "</p>\n";
+-	m_MainLog.flush();
++	AppendLines("<p>" + cmessage + "</p>\n", "");
+ 
+ 	if (doRender)
+ 	{
+@@ -138,15 +199,12 @@ void CLogger::WriteError(const char* message)
+ 	std::lock_guard<std::mutex> lock(m_Mutex);
+ 
+ 	++m_NumberOfErrors;
+-	if (m_UseDebugPrintf)
++	if (m_UseDebugPrintf && PrintsWithoutBlocking())
+ 		debug_printf("ERROR: %.16000s\n", message);
+ 
+ 	if (g_Console) g_Console->InsertMessage(std::string("ERROR: ") + message);
+-	m_InterestingLog << "<p class=\"error\">ERROR: " << cmessage << "</p>\n";
+-	m_InterestingLog.flush();
+-
+-	m_MainLog << "<p class=\"error\">ERROR: " << cmessage << "</p>\n";
+-	m_MainLog.flush();
++	const std::string line = "<p class=\"error\">ERROR: " + cmessage + "</p>\n";
++	AppendLines(line, line);
+ 
+ 	PushRenderMessage(Error, message);
+ }
+@@ -158,15 +216,12 @@ void CLogger::WriteWarning(const char* message)
+ 	std::lock_guard<std::mutex> lock(m_Mutex);
+ 
+ 	++m_NumberOfWarnings;
+-	if (m_UseDebugPrintf)
++	if (m_UseDebugPrintf && PrintsWithoutBlocking())
+ 		debug_printf("WARNING: %s\n", message);
+ 
+ 	if (g_Console) g_Console->InsertMessage(std::string("WARNING: ") + message);
+-	m_InterestingLog << "<p class=\"warning\">WARNING: " << cmessage << "</p>\n";
+-	m_InterestingLog.flush();
+-
+-	m_MainLog << "<p class=\"warning\">WARNING: " << cmessage << "</p>\n";
+-	m_MainLog.flush();
++	const std::string line = "<p class=\"warning\">WARNING: " + cmessage + "</p>\n";
++	AppendLines(line, line);
+ 
+ 	PushRenderMessage(Warning, message);
+ }
+@@ -191,6 +246,9 @@ void CLogger::Render(CCanvas2D& canvas)
+ 	// (Lock must come after loading the CFont, since that might log error messages
+ 	// and attempt to lock the mutex recursively which is forbidden)
+ 	std::lock_guard<std::mutex> lock(m_Mutex);
++#ifdef __EMSCRIPTEN__
++	WritePendingLines();
++#endif
+ 
+ 	for (const RenderedMessage& msg : m_RenderMessages)
+ 	{
+diff --git a/source/ps/CLogger.h b/source/ps/CLogger.h
+index d758989b..b930e743 100644
+--- a/source/ps/CLogger.h
++++ b/source/ps/CLogger.h
+@@ -80,6 +80,14 @@ private:
+ 	// Delete old timed-out entries from the list of text to render
+ 	void CleanupRenderQueue();
+ 
++	// Write a line to the main log and (if not empty) the interesting log; m_Mutex must be held.
++	// In the browser build, lines from threads other than the main one are queued instead.
++	void AppendLines(const std::string& mainLine, const std::string& interestingLine);
++	// Write the queued lines (main thread, m_Mutex held).
++	void WritePendingLines();
++	std::string m_PendingMainLog;
++	std::string m_PendingInterestingLog;
++
+ 	// the output streams
+ 	std::ostream& m_MainLog;
+ 	std::ostream& m_InterestingLog;

@@ -15,6 +15,12 @@ cd ../workspaces/emscripten
 # and JSPI cannot suspend through the JS-based exception wrappers). Changing these flags needs a
 # clean rebuild: delete build/workspaces/emscripten/obj first (make does not track flags).
 export CFLAGS="-fwasm-exceptions" CXXFLAGS="-fwasm-exceptions"
+# ENet in wasm/deps/prefix has the WebSocket datagram tunnel as its socket layer (T7.1b): rebuild it
+# with tools/wasm/build-enet.sh; the web profile adds its JavaScript side, enet-tunnel.pre.js.
+# Web pthread pool: the main menu uses 11 threads (one is the tunnel's network I/O thread) and a
+# multiplayer host adds two (server, client poll). A thread beyond the pool needs a new Worker,
+# which only starts when the main thread returns to the event loop; the multiplayer autostart loop
+# (GameSetup.cpp) never does, so the pool must cover them: 14.
 # Link profile. node: headless runs in Node (gate T0.3) with direct host file access.
 # web: browser build (main thread + JSPI), copied to upstream/binaries/system-web with index.html.
 WASM_PROFILE="${WASM_PROFILE:-node}"
@@ -47,10 +53,11 @@ case "$WASM_PROFILE" in
       mkdir -p "$OUT"
       python3 -I "$ROOT/tools/wasm/map-settings-index.py" "$PUBLIC_ZIP" "$MAPSETTINGS_IDX"
     fi
-    export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=12 -sENVIRONMENT=web,worker -sJSPI=1 -sJSPI_EXPORTS=zeroad_ai_service -sEXIT_RUNTIME=0 \
+    export LDFLAGS="$COMMON_LDFLAGS -sPTHREAD_POOL_SIZE=14 -sENVIRONMENT=web,worker -sJSPI=1 -sJSPI_EXPORTS=zeroad_ai_service -sEXIT_RUNTIME=0 \
       -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFULL_ES3=1 -sGL_ENABLE_GET_PROC_ADDRESS=1 \
       -lidbfs.js -sEXPORTED_RUNTIME_METHODS=FS \
-      --pre-js $ROOT/tools/wasm/web-env.pre.js --js-library $ROOT/tools/wasm/web-lib.js \
+      --pre-js $ROOT/tools/wasm/web-env.pre.js --pre-js $ROOT/tools/wasm/enet-tunnel.pre.js \
+      --js-library $ROOT/tools/wasm/web-lib.js \
       --preload-file $W/pyrogenesis-exe-placeholder.txt@/0ad/binaries/system/pyrogenesis \
       --preload-file $D/config@/0ad/binaries/data/config \
       --preload-file $MAPSETTINGS_IDX@/0ad/mapsettings.idx \
