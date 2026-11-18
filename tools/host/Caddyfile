@@ -38,11 +38,6 @@
 
 	# Compress text assets only. The mod zips are read with HTTP Range requests
 	# (64 KiB blocks) and a compressed response cannot be ranged, so *.zip stays raw.
-	encode {
-		zstd
-		gzip
-		match {
-			not path *.zip
-		}
-	}
+	@compressible not path *.zip
+	encode @compressible zstd gzip
 }
