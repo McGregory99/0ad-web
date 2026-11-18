@@ -20,6 +20,7 @@
 // Env CHROME_W / CHROME_H set the viewport and screen size (default 1280x720); the screen size
 // matters for fullscreen, which SDL sizes from screen.width/height.
 // Audio is muted (--mute-audio) unless env CHROME_AUDIO=1; use that only for sound tests.
+// Env SITE_URL (e.g. https://192.168.0.28:8012/) loads that URL instead of starting serve.mjs.
 // Writes <outdir>/console.log (console messages and exceptions, with seconds since start).
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync, readFileSync } from 'node:fs';
@@ -33,6 +34,9 @@ if (!dir || !outdir || !script) {
   process.exit(2);
 }
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const SITE_URL = (process.env.SITE_URL || '').trim();
+// With SITE_URL there is no local server; the query goes after exactly one '/'.
+const siteUrl = SITE_URL ? `${SITE_URL.replace(/\/+$/, '')}/${query}` : '';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const W = Number(process.env.CHROME_W || 1280), H = Number(process.env.CHROME_H || 720);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -41,14 +45,16 @@ const logFile = join(outdir, 'console.log');
 writeFileSync(logFile, '');
 const t0 = Date.now();
 const log = (line) => appendFileSync(logFile, `[${((Date.now() - t0) / 1000).toFixed(1)}] ${line}\n`);
+if (siteUrl) console.log(`site url: ${siteUrl}`);
 
-const server = spawn('node', [join(root, 'tools/spikes/serve.mjs'), dir, port], { stdio: 'ignore' });
+const server = siteUrl ? null : spawn('node', [join(root, 'tools/spikes/serve.mjs'), dir, port], { stdio: 'ignore' });
 const profile = mkdtempSync(join(tmpdir(), 'chrome-shot-'));
 const chrome = spawn(CHROME, [
   '--headless=new', `--user-data-dir=${profile}`, '--no-first-run', '--remote-debugging-port=0',
   ...(process.env.CHROME_GPU === '1' ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist']
     : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']),
   ...(process.env.CHROME_AUDIO === '1' ? [] : ['--mute-audio']),
+  ...(siteUrl ? ['--ignore-certificate-errors'] : []),
   `--window-size=${W},${H}`, 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
@@ -57,7 +63,7 @@ function cleanup() {
   if (cleaned) return;
   cleaned = true;
   chrome.kill('SIGKILL');
-  server.kill();
+  if (server) server.kill();
   setTimeout(() => rmSync(profile, { recursive: true, force: true }), 500);
 }
 process.on('exit', cleanup);
@@ -111,7 +117,7 @@ await s('Runtime.enable');
 await s('Log.enable');
 await s('Page.enable');
 await s('Emulation.setDeviceMetricsOverride', { width: W, height: H, screenWidth: W, screenHeight: H, deviceScaleFactor: 1, mobile: false });
-await s('Page.navigate', { url: `http://127.0.0.1:${port}/${query}` });
+await s('Page.navigate', { url: siteUrl || `http://127.0.0.1:${port}/${query}` });
 
 // DOM key name -> [code, Windows virtual key code]; SDL reads code/keyCode, not key.
 function keyInfo(key) {
