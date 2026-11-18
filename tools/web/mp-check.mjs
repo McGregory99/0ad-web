@@ -20,6 +20,9 @@
 //      creates a room (Multijugador > Crear partida), its "Room code: <port>" console line is the
 //      code the client page types into Conectar por IP, and the host starts the match from the
 //      game setup page. summary.roomCode holds the code; <page>-step{1,3,4}.png are screenshots.
+//      SITE_URL (e.g. https://192.168.0.28:8012/) loads that deployed site instead of starting the
+//      relay and serve.mjs; the page then uses its own default relay unless SITE_RELAY is set. Not
+//      supported with MP_NATIVE (exit 2).
 // Writes <outdir>/{host,client}.console.log, relay.log, {host,client}.png, {host,client}.{mainlog,interestinglog}.html
 // (the engine's logs) and summary.json; with MP_NATIVE also native.log and native.mainlog.html.
 // Exit 0 when both pages reached the match, no desync line appeared, both sides sent and received
@@ -44,29 +47,43 @@ const RELAY_PORT = process.env.RELAY_PORT || '20600';
 const START_TIMEOUT = Number(process.env.MP_START_TIMEOUT || 420) * 1000;
 const MP_NATIVE = ['client', 'host'].includes(process.env.MP_NATIVE) ? process.env.MP_NATIVE : null;
 const MP_GUI = process.env.MP_GUI === '1';
+const SITE_URL = (process.env.SITE_URL || '').trim();
+const SITE_RELAY = (process.env.SITE_RELAY || '').trim();
+// With SITE_URL there is no local relay or server; the query goes after exactly one '/'.
+const siteBase = SITE_URL ? SITE_URL.replace(/\/+$/, '') : '';
+const pageUrl = (query) => (siteBase ? `${siteBase}/${query}` : `http://127.0.0.1:${port}/${query}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 mkdirSync(outdir, { recursive: true });
 const t0 = Date.now();
 const stamp = () => ((Date.now() - t0) / 1000).toFixed(1);
 const say = (line) => { console.log(`[${stamp()}] ${line}`); appendFileSync(join(outdir, 'mp-check.log'), `[${stamp()}] ${line}\n`); };
 writeFileSync(join(outdir, 'mp-check.log'), '');
+if (SITE_URL) say(`site url: ${siteBase}`);
+if (SITE_URL && MP_NATIVE) {
+  console.error('SITE_URL and MP_NATIVE cannot be combined: a native pyrogenesis needs the local relay on UDP 20595');
+  process.exit(2);
+}
 
-const relayLog = createWriteStream(join(outdir, 'relay.log'));
-const relay = spawn('node', [join(root, 'tools/relay/relay.mjs')], {
+// A deployed site brings its own relay (and page server): start neither.
+const relayLog = SITE_URL ? null : createWriteStream(join(outdir, 'relay.log'));
+const relay = SITE_URL ? null : spawn('node', [join(root, 'tools/relay/relay.mjs')], {
   env: { ...process.env, RELAY_HOST: '127.0.0.1', RELAY_PORT }, stdio: ['ignore', 'pipe', 'pipe'],
 });
-relay.stdout.pipe(relayLog);
-relay.stderr.pipe(relayLog);
+if (relay) {
+  relay.stdout.pipe(relayLog);
+  relay.stderr.pipe(relayLog);
+}
 let relayExited = false;
-relay.on('exit', (code) => { relayExited = true; say(`relay exited (${code})`); });
-const server = spawn('node', [join(root, 'tools/spikes/serve.mjs'), dir, port], { stdio: 'ignore' });
+if (relay) relay.on('exit', (code) => { relayExited = true; say(`relay exited (${code})`); });
+const server = SITE_URL ? null : spawn('node', [join(root, 'tools/spikes/serve.mjs'), dir, port], { stdio: 'ignore' });
 const profile = mkdtempSync(join(tmpdir(), 'mp-check-'));
 const chrome = spawn(CHROME, [
   '--headless=new', `--user-data-dir=${profile}`, '--no-first-run', '--remote-debugging-port=0',
   ...(process.env.CHROME_GPU === '1' ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist']
     : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']),
   '--mute-audio', '--disable-renderer-backgrounding', '--disable-background-timer-throttling',
-  '--disable-backgrounding-occluded-windows', `--window-size=${W},${H}`, 'about:blank',
+  '--disable-backgrounding-occluded-windows', ...(SITE_URL ? ['--ignore-certificate-errors'] : []),
+  `--window-size=${W},${H}`, 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
 let native = null;
@@ -75,8 +92,8 @@ function cleanup() {
   if (cleaned) return;
   cleaned = true;
   chrome.kill('SIGKILL');
-  server.kill();
-  relay.kill();
+  if (server) server.kill();
+  if (relay) relay.kill();
   if (native && native.proc.exitCode === null && native.proc.signalCode === null) native.proc.kill('SIGKILL');
   // Synchronous: the process exits right after cleanup, so a timer would never fire.
   try { rmSync(profile, { recursive: true, force: true }); } catch (error) { console.error(`profile ${profile} not removed: ${error}`); }
@@ -260,7 +277,12 @@ function startNative(role) {
   return nativeSide;
 }
 
-const base = `?arg=-mod=public&arg=-conf=windowed:true&relay=${encodeURIComponent(`ws://127.0.0.1:${RELAY_PORT}/`)}`;
+// With SITE_URL the page uses its own default relay (wss://<page host>:20600/); SITE_RELAY
+// overrides it, e.g. for a local relay next to a locally served site.
+const relayQuery = SITE_URL
+  ? (SITE_RELAY ? `&relay=${encodeURIComponent(SITE_RELAY)}` : '')
+  : `&relay=${encodeURIComponent(`ws://127.0.0.1:${RELAY_PORT}/`)}`;
+const base = `?arg=-mod=public&arg=-conf=windowed:true${relayQuery}`;
 const hostQuery = `${base}&arg=-autostart=${MAP}&arg=-autostart-host&arg=-autostart-host-players=2&arg=-autostart-playername=host`;
 const clientQuery = `${base}&arg=-autostart-client=127.0.0.1&arg=-autostart-playername=client`;
 // Only the pages this run needs: a native side replaces one of the two browser pages.
@@ -292,8 +314,8 @@ let ok = true;
 if (MP_GUI) {
   // Step 1: host page, base query only (no autostart): dismiss the start overlay, then
   // Multijugador > Crear partida > Continuar.
-  await host.s('Page.navigate', { url: `http://127.0.0.1:${port}/${base}` });
-  say(`host page opened (GUI): ${base}`);
+  await host.s('Page.navigate', { url: pageUrl(base) });
+  say(`host page opened (GUI): ${pageUrl(base)}`);
   await sleep(25000);
   await host.click(491, 553);
   await sleep(2000);
@@ -317,8 +339,8 @@ if (MP_GUI) {
   // Step 3: client page, Conectar por IP, replace the server field's text with the code.
   if (ok) {
     // Both pages get their own default "Player NNNN" name from web_roomcode.js.
-    await client.s('Page.navigate', { url: `http://127.0.0.1:${port}/${base}` });
-    say(`client page opened (GUI): ${base}`);
+    await client.s('Page.navigate', { url: pageUrl(base) });
+    say(`client page opened (GUI): ${pageUrl(base)}`);
     await sleep(25000);
     await client.click(491, 553);
     await sleep(2000);
@@ -346,19 +368,19 @@ if (MP_GUI) {
     ok = await waitFor('both pages in the match', () => host.started && client.started, START_TIMEOUT);
   }
 } else if (MP_NATIVE === 'host') {
-  await client.s('Page.navigate', { url: `http://127.0.0.1:${port}/${clientQuery}` });
-  say(`client page opened: ${clientQuery}`);
+  await client.s('Page.navigate', { url: pageUrl(clientQuery) });
+  say(`client page opened: ${pageUrl(clientQuery)}`);
   ok = await waitFor('the browser page and the native side in the match', () => client.started && native.started, START_TIMEOUT);
 } else {
-  await host.s('Page.navigate', { url: `http://127.0.0.1:${port}/${hostQuery}` });
-  say(`host page opened: ${hostQuery}`);
+  await host.s('Page.navigate', { url: pageUrl(hostQuery) });
+  say(`host page opened: ${pageUrl(hostQuery)}`);
   ok = await waitFor('the host relay socket to bind', () => host.bound, 120000);
   if (ok && MP_NATIVE === 'client') {
     native = startNative('client');
     ok = await waitFor('the browser page and the native side in the match', () => host.started && native.started, START_TIMEOUT);
   } else if (ok) {
-    await client.s('Page.navigate', { url: `http://127.0.0.1:${port}/${clientQuery}` });
-    say(`client page opened: ${clientQuery}`);
+    await client.s('Page.navigate', { url: pageUrl(clientQuery) });
+    say(`client page opened: ${pageUrl(clientQuery)}`);
     if (process.env.MP_STACKS) {
       await sleep(Number(process.env.MP_STACKS) * 1000);
       for (const page of browserPages) await dumpStack(page);
