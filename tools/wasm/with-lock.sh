@@ -1,10 +1,12 @@
 #!/bin/sh
 # Run a command while holding the engine lock. Workers share one build tree and one output
 # directory (upstream/binaries/system-wasm), so builds and Node runs of that binary must not overlap.
-# Usage: WORKER=<name> tools/wasm/with-lock.sh <command> [args...]
-# Waits up to 60 minutes for the lock; exits 3 on timeout. The lock owner is in runs/.engine.lock/owner.
+# Usage: WORKER=<name> [LOCK_NAME=<name>] tools/wasm/with-lock.sh <command> [args...]
+# LOCK_NAME selects another lock (default "engine"): LOCK_NAME=mp serializes multiplayer tests,
+# which all need the game's UDP port 20595.
+# Waits up to 60 minutes for the lock; exits 3 on timeout. The lock owner is in runs/.<LOCK_NAME>.lock/owner.
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-LOCK="$ROOT/runs/.engine.lock"
+LOCK="$ROOT/runs/.${LOCK_NAME:-engine}.lock"
 mkdir -p "$ROOT/runs"
 i=0
 until mkdir "$LOCK" 2>/dev/null; do

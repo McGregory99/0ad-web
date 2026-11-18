@@ -1,0 +1,48 @@
+# systemd unit for the 0 A.D. web build UDP relay (tools/relay/relay.mjs).
+#
+# Install:
+#   useradd --system --no-create-home --shell /usr/sbin/nologin 0ad-relay
+#   mkdir -p /opt/0ad-web && cp -R tools/relay /opt/0ad-web/tools/relay
+#   cd /opt/0ad-web/tools/relay && npm install ws        # the relay needs `ws`
+#   install -m 0640 tools/host/zeroad-relay.service /etc/systemd/system/
+#   install -d /etc/0ad-web                              # relay.env goes here
+#   systemctl daemon-reload && systemctl enable --now zeroad-relay
+#
+# /etc/0ad-web/relay.env holds the per-host values (see tools/relay/relay.mjs header):
+#   RELAY_PUBLIC_IP=203.0.113.10        # public IPv4 reported in BOUND to clients
+#   RELAY_TLS_CERT=/etc/0ad-web/relay.crt   # PEM; needed because the page is https,
+#   RELAY_TLS_KEY=/etc/0ad-web/relay.key    # so the browser wants wss://
+# RELAY_HOST/PORT/UDP range are fixed below. RELAY_DEST defaults to "public" when
+# RELAY_HOST is not loopback, which is what a public relay wants.
+
+[Unit]
+Description=0 A.D. web build UDP relay (WebSocket to ENet tunnel)
+Documentation=file:/opt/0ad-web/tools/relay/PROTOCOL.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Unprivileged system user: the relay only needs to open sockets above 1024.
+User=0ad-relay
+Group=0ad-relay
+WorkingDirectory=/opt/0ad-web/tools/relay
+ExecStart=/usr/bin/node /opt/0ad-web/tools/relay/relay.mjs
+
+# Listen on all interfaces for the WebSocket, hand out UDP sockets from 20700-20999.
+Environment=RELAY_HOST=0.0.0.0 RELAY_PORT=20600 RELAY_UDP_MIN=20700 RELAY_UDP_MAX=20999
+# Optional per-host values (RELAY_PUBLIC_IP, RELAY_TLS_CERT, RELAY_TLS_KEY); the "-"
+# makes the unit start even when the file does not exist yet.
+EnvironmentFile=-/etc/0ad-web/relay.env
+
+Restart=on-failure
+RestartSec=2
+
+# Basic hardening: the relay never writes files and needs no privileges.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

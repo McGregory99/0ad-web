@@ -1,0 +1,48 @@
+# Caddy v2 config for hosting a packaged 0 A.D. web build.
+#
+# Usage (from the repo root, with the site packaged by tools/host/package-site.sh):
+#   SITE_DOMAIN=play.example.org SITE_ROOT=/srv/0ad-web caddy run --config tools/host/Caddyfile
+#
+# Caddy terminates TLS itself (automatic HTTPS on :443), so the relay is NOT proxied
+# from here: tools/relay/relay.mjs listens on :20600 by itself and the browser opens
+# wss://<page host>:20600/ directly (see tools/relay/PROTOCOL.md).
+#
+# This file has not been run in this repository (no Caddy on the dev machine); it is
+# the reference for the header table in tools/host/README.md.
+
+{$SITE_DOMAIN} {
+	# Serve the self-contained upload directory produced by package-site.sh.
+	root * {$SITE_ROOT}
+	file_server
+
+	# Cross-origin isolation on EVERY response. SharedArrayBuffer (pthreads in the
+	# wasm build) only exists when COOP is same-origin and COEP is require-corp, and
+	# CORP same-origin lets other hosts/iframes use these files safely.
+	header {
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Embedder-Policy "require-corp"
+		Cross-Origin-Resource-Policy "same-origin"
+	}
+
+	# Default caching: one hour for the big immutable assets (wasm, data, zips).
+	header Cache-Control "public, max-age=3600"
+
+	# HTML pages change with every build and are the entry point: always revalidate.
+	@html path *.html
+	header @html Cache-Control "no-cache"
+
+	# The wasm module must carry the wasm MIME type, otherwise the browser refuses
+	# streaming compilation (it warns and falls back to a slow path or errors out).
+	@wasm path *.wasm
+	header @wasm Content-Type "application/wasm"
+
+	# Compress text assets only. The mod zips are read with HTTP Range requests
+	# (64 KiB blocks) and a compressed response cannot be ranged, so *.zip stays raw.
+	encode {
+		zstd
+		gzip
+		match {
+			not path *.zip
+		}
+	}
+}
