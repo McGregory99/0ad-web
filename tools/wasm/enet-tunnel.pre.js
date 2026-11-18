@@ -13,6 +13,10 @@
 if (typeof window !== 'undefined' && (typeof ENVIRONMENT_IS_PTHREAD === 'undefined' || !ENVIRONMENT_IS_PTHREAD)) {
 	const relayUrl = new URLSearchParams(location.search).get('relay') ||
 		`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:20600/`;
+	// Room codes (T7.1e): the GUI reads the relay address from the config to show a room code
+	// (the relay port) and the native "host:port". Appended after the page arguments that
+	// web-env.pre.js set (same mechanism: Module.arguments is the engine command line).
+	Module.arguments = (Module.arguments || []).concat([`-conf=webnet.relay:${relayUrl}`]);
 	const names = ['sockets', 'open', 'sent', 'received', 'bytesSent', 'bytesReceived', 'dropped', 'errors', 'rxQueued', 'txQueued'];
 	Module.zeroadNet = {
 		relayUrl,

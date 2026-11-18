@@ -57,6 +57,7 @@
 #define TUNNEL_MAX_PAYLOAD 4096                /* PROTOCOL.md limit */
 #define TUNNEL_SEND 0x02
 #define TUNNEL_RECV 0x83
+#define TUNNEL_BIND_TIMEOUT_MS 5000           /* one relay round trip; a host must not wait long */
 
 typedef struct TunnelFrame
 {
@@ -300,6 +301,8 @@ zeroad_net_bound (int slot, int generation, enet_uint32 host, int port)
         s -> boundKnown = 1;
     }
     pthread_mutex_unlock (& tunnelLock);
+    /* enet_socket_bind waits for this answer (hosts only). */
+    pthread_cond_broadcast (& tunnelArrived);
 }
 
 /* The relay sent ERROR or closed the WebSocket on its own. Later sends and receives fail. */
@@ -392,6 +395,8 @@ enet_socket_bind (ENetSocket socket, const ENetAddress * address)
 {
     int generation, port = address != NULL ? address -> port : 0;
     TunnelSocket * s;
+    struct timespec deadline;
+    int result;
 
     pthread_mutex_lock (& tunnelLock);
     s = tunnel_get (socket);
@@ -407,7 +412,35 @@ enet_socket_bind (ENetSocket socket, const ENetAddress * address)
 
     /* The relay binds 0.0.0.0:port; the requested host address is ignored. */
     tunnel_post_control (TUNNEL_BIND, socket, generation, port);
-    return 0;
+
+    /* Clients (port 0) never learn their port: return at once. A host must know immediately
+       whether the relay bound the requested port, because its own client connects to
+       127.0.0.1:port (JSInterface_Network.cpp) — if the bind failed that is somebody else's game.
+       Waiting here is safe on the main thread: the WebSocket lives on the network I/O thread,
+       which answers without the main thread. It is short (one relay round trip) and happens only
+       when hosting, so the GUI learns of a failure before it claims to host. */
+    if (port == 0)
+      return 0;
+    if (! tunnelEnabled)
+      return 0;  /* no I/O thread (Node build): keep the old "bind always succeeds" behaviour */
+
+    pthread_mutex_lock (& tunnelLock);
+    s = tunnel_get (socket);
+    if (s == NULL || s -> generation != generation)
+    {
+        pthread_mutex_unlock (& tunnelLock);
+        return -1;
+    }
+    if (! s -> boundKnown && ! s -> failed)
+    {
+        tunnel_deadline (& deadline, TUNNEL_BIND_TIMEOUT_MS);
+        while (s -> used && s -> generation == generation && ! s -> boundKnown && ! s -> failed)
+            if (pthread_cond_timedwait (& tunnelArrived, & tunnelLock, & deadline) == ETIMEDOUT)
+                break;
+    }
+    result = (s -> used && s -> generation == generation && s -> boundKnown && ! s -> failed) ? 0 : -1;
+    pthread_mutex_unlock (& tunnelLock);
+    return result;
 }
 
 int
