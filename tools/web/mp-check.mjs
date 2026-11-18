@@ -11,13 +11,18 @@
 //      match (default 420), CHROME_GPU=1 real GPU instead of SwiftShader, CHROME_W / CHROME_H,
 //      MP_STACKS=<s> logs each page's main-thread JS/wasm call stack s seconds after the client
 //      page opened (diagnosis of a stalled main thread).
+//      MP_NATIVE=client — a native pyrogenesis joins the browser host as a client: the host page
+//      autostarts on the relay's UDP 20595 socket and the native client joins 127.0.0.1 (T7.1c).
+//      MP_NATIVE=host — the native pyrogenesis is the host, listening on UDP 20595, and the browser
+//      client page joins 127.0.0.1 through the relay (T7.1d). Unset keeps the two-browser check.
+//      MP_NATIVE_ARGS extra native arguments, space-separated (e.g. "-autostart-nonvisual").
 // Writes <outdir>/{host,client}.console.log, relay.log, {host,client}.png, {host,client}.{mainlog,interestinglog}.html
-// (the engine's logs) and summary.json.
+// (the engine's logs) and summary.json; with MP_NATIVE also native.log and native.mainlog.html.
 // Exit 0 when both pages reached the match, no desync line appeared, both sides sent and received
 // more datagrams during the match and both were still connected at the end; 1 otherwise.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync, createWriteStream } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync, createWriteStream, copyFileSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,6 +38,7 @@ const W = Number(process.env.CHROME_W || 1280), H = Number(process.env.CHROME_H 
 const MAP = process.env.MP_MAP || 'scenarios/arcadia';
 const RELAY_PORT = process.env.RELAY_PORT || '20600';
 const START_TIMEOUT = Number(process.env.MP_START_TIMEOUT || 420) * 1000;
+const MP_NATIVE = ['client', 'host'].includes(process.env.MP_NATIVE) ? process.env.MP_NATIVE : null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 mkdirSync(outdir, { recursive: true });
 const t0 = Date.now();
@@ -58,6 +64,7 @@ const chrome = spawn(CHROME, [
   '--disable-backgrounding-occluded-windows', `--window-size=${W},${H}`, 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
+let native = null;
 let cleaned = false;
 function cleanup() {
   if (cleaned) return;
@@ -65,6 +72,7 @@ function cleanup() {
   chrome.kill('SIGKILL');
   server.kill();
   relay.kill();
+  if (native && native.proc.exitCode === null && native.proc.signalCode === null) native.proc.kill('SIGKILL');
   // Synchronous: the process exits right after cleanup, so a timer would never fire.
   try { rmSync(profile, { recursive: true, force: true }); } catch (error) { console.error(`profile ${profile} not removed: ${error}`); }
 }
@@ -166,11 +174,63 @@ async function dumpStack(page) {
   if (frames) await page.s('Debugger.resume');
 }
 
+// A native pyrogenesis taking part in the match (T7.1c/d). Its stdout+stderr go line by line to
+// <outdir>/native.log and into an object shaped like a page.
+function startNative(role) {
+  const nativeDir = join(root, 'upstream/binaries/system');
+  const args = ['-mod=public'];
+  if (role === 'host')
+    args.push(`-autostart=${MAP}`, '-autostart-host', '-autostart-host-players=2', '-autostart-playername=native');
+  else args.push('-autostart-client=127.0.0.1', '-autostart-playername=native');
+  for (const arg of (process.env.MP_NATIVE_ARGS || '').split(' ')) if (arg) args.push(arg);
+  const proc = spawn(join(nativeDir, 'pyrogenesis'), args, { cwd: nativeDir, stdio: ['ignore', 'pipe', 'pipe'] });
+  const nativeSide = { name: 'native', lines: [], started: null, matchLineIndex: null, proc };
+  const file = join(outdir, 'native.log');
+  writeFileSync(file, '');
+  const log = (line) => {
+    nativeSide.lines.push(line);
+    appendFileSync(file, `[${stamp()}] ${line}\n`);
+    if (!nativeSide.started && line.includes('GAME STARTED')) {
+      nativeSide.started = Date.now();
+      nativeSide.matchLineIndex = nativeSide.lines.length - 1;
+      say('native: in the match');
+    }
+  };
+  let buf = '';
+  const onData = (data) => {
+    buf += data.toString();
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      log(buf.slice(0, i).replace(/\r$/, ''));
+      buf = buf.slice(i + 1);
+    }
+  };
+  proc.stdout.on('data', onData);
+  proc.stderr.on('data', onData);
+  proc.on('exit', (code, signal) => {
+    if (buf) log(buf);
+    buf = '';
+    say(`native exited (code ${code}, signal ${signal})`);
+  });
+  say(`native ${role} started: ${join(nativeDir, 'pyrogenesis')} ${args.join(' ')}`);
+  return nativeSide;
+}
+
 const base = `?arg=-mod=public&arg=-conf=windowed:true&relay=${encodeURIComponent(`ws://127.0.0.1:${RELAY_PORT}/`)}`;
 const hostQuery = `${base}&arg=-autostart=${MAP}&arg=-autostart-host&arg=-autostart-host-players=2&arg=-autostart-playername=host`;
 const clientQuery = `${base}&arg=-autostart-client=127.0.0.1&arg=-autostart-playername=client`;
-const host = await openPage('host');
-const client = await openPage('client');
+// Only the pages this run needs: a native side replaces one of the two browser pages.
+let host = null;
+let client = null;
+if (MP_NATIVE === 'host') {
+  native = startNative('host');
+  // The native host needs a few seconds to listen on UDP 20595 before a client joins.
+  await sleep(15000);
+  client = await openPage('client');
+} else {
+  host = await openPage('host');
+  if (MP_NATIVE !== 'client') client = await openPage('client');
+}
 const waitFor = async (what, check, ms) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
@@ -181,32 +241,46 @@ const waitFor = async (what, check, ms) => {
   return false;
 };
 
-const summary = { map: MAP, matchSeconds, host: {}, client: {} };
+const browserPages = [host, client].filter(Boolean);
+const summary = { map: MAP, matchSeconds };
+for (const page of browserPages) summary[page.name] = {};
 let ok = true;
-await host.s('Page.navigate', { url: `http://127.0.0.1:${port}/${hostQuery}` });
-say(`host page opened: ${hostQuery}`);
-ok = await waitFor('the host relay socket to bind', () => host.bound, 120000);
-if (ok) {
+if (MP_NATIVE === 'host') {
   await client.s('Page.navigate', { url: `http://127.0.0.1:${port}/${clientQuery}` });
   say(`client page opened: ${clientQuery}`);
-  if (process.env.MP_STACKS) {
-    await sleep(Number(process.env.MP_STACKS) * 1000);
-    for (const page of [host, client]) await dumpStack(page);
+  ok = await waitFor('the browser page and the native side in the match', () => client.started && native.started, START_TIMEOUT);
+} else {
+  await host.s('Page.navigate', { url: `http://127.0.0.1:${port}/${hostQuery}` });
+  say(`host page opened: ${hostQuery}`);
+  ok = await waitFor('the host relay socket to bind', () => host.bound, 120000);
+  if (ok && MP_NATIVE === 'client') {
+    native = startNative('client');
+    ok = await waitFor('the browser page and the native side in the match', () => host.started && native.started, START_TIMEOUT);
+  } else if (ok) {
+    await client.s('Page.navigate', { url: `http://127.0.0.1:${port}/${clientQuery}` });
+    say(`client page opened: ${clientQuery}`);
+    if (process.env.MP_STACKS) {
+      await sleep(Number(process.env.MP_STACKS) * 1000);
+      for (const page of browserPages) await dumpStack(page);
+    }
+    ok = await waitFor('both pages in the match', () => host.started && client.started, START_TIMEOUT);
   }
-  ok = await waitFor('both pages in the match', () => host.started && client.started, START_TIMEOUT);
 }
-for (const page of [host, client])
+for (const page of browserPages)
   summary[page.name].visibility = await page.evaluate('document.visibilityState');
 if (ok) {
-  summary.host.statsAtStart = await host.stats();
-  summary.client.statsAtStart = await client.stats();
-  say(`stats at start: host ${JSON.stringify(summary.host.statsAtStart)} client ${JSON.stringify(summary.client.statsAtStart)}`);
+  for (const page of browserPages) summary[page.name].statsAtStart = await page.stats();
+  say(`stats at start: ${browserPages.map((page) => `${page.name} ${JSON.stringify(summary[page.name].statsAtStart)}`).join(' ')}`);
   for (let left = matchSeconds; left > 0; left -= 30) {
     await sleep(Math.min(30, left) * 1000);
-    say(`in match: host ${JSON.stringify(await host.stats())} client ${JSON.stringify(await client.stats())}`);
+    const parts = [];
+    for (const page of browserPages) parts.push(`${page.name} ${JSON.stringify(await page.stats())}`);
+    // What the native engine prints during the match: its turn/update lines, if any.
+    if (native) parts.push(`native turn lines ${native.lines.filter((l) => /turn/i.test(l)).length}`);
+    say(`in match: ${parts.join(' ')}`);
   }
 }
-for (const page of [host, client]) {
+for (const page of browserPages) {
   const { data } = await page.s('Page.captureScreenshot', { format: 'png' });
   writeFileSync(join(outdir, `${page.name}.png`), Buffer.from(data, 'base64'));
   const p = summary[page.name];
@@ -224,23 +298,43 @@ for (const page of [host, client]) {
     writeFileSync(join(outdir, `${page.name}.${log}.html`), String(text));
   }
 }
+if (native) {
+  summary.native = {
+    reachedMatch: Boolean(native.started),
+    matchStartSeconds: native.started ? +((native.started - t0) / 1000).toFixed(1) : null,
+    exited: native.proc.exitCode,
+    desyncLines: native.lines.filter((l) => /out.of.sync|\bOOS\b|desync/i.test(l)),
+    errorLines: native.lines.filter((l) => /ERROR|error:/.test(l)).slice(0, 40),
+    turnLines: native.lines.filter((l) => /turn/i.test(l)).length,
+  };
+  // The engine writes this while it runs; copy it, never delete it.
+  try { copyFileSync(join(homedir(), 'Library/Application Support/0ad/logs/mainlog.html'), join(outdir, 'native.mainlog.html')); }
+  catch (error) { say(`native mainlog not copied: ${error.code || error}`); }
+}
 const grew = (p) => p.statsAtStart && p.stats && p.stats.sent > p.statsAtStart.sent && p.stats.received > p.statsAtStart.received;
 // The match must still be connected at the end: a relay WebSocket is still open and no socket was
 // closed after the match started (stats.sockets counts every socket ever opened, so it is not
 // compared with stats.open).
 const connected = (page, p) => p.stats && p.stats.open > 0 &&
   !page.lines.slice(page.matchLineIndex ?? 0).some((l) => l.includes('[zeroad-net]') && l.includes('closed'));
-summary.host.connectedAtEnd = Boolean(connected(host, summary.host));
-summary.client.connectedAtEnd = Boolean(connected(client, summary.client));
-summary.pass = ok && summary.host.reachedMatch && summary.client.reachedMatch &&
-  summary.host.desyncLines.length === 0 && summary.client.desyncLines.length === 0 &&
-  Boolean(grew(summary.host)) && Boolean(grew(summary.client)) &&
-  summary.host.connectedAtEnd && summary.client.connectedAtEnd;
+for (const page of browserPages) summary[page.name].connectedAtEnd = Boolean(connected(page, summary[page.name]));
+// With a native side only one browser page is in the match, and the native side must have reached
+// the match, still be running at the end and show no desync line. The two-browser rule is unchanged.
+const nativeRunning = Boolean(native) && native.proc.exitCode === null && native.proc.signalCode === null;
+summary.pass = Boolean(ok && browserPages.every((page) => {
+  const p = summary[page.name];
+  return p.reachedMatch && p.desyncLines.length === 0 && Boolean(grew(p)) && p.connectedAtEnd;
+}) && (!native || (summary.native.reachedMatch && nativeRunning && summary.native.desyncLines.length === 0)));
 writeFileSync(join(outdir, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
-for (const page of [host, client]) {
+for (const page of browserPages) {
   const p = summary[page.name];
   say(`${page.name}: match ${p.reachedMatch} (at ${p.matchStartSeconds} s), connected at end ${p.connectedAtEnd}, bound ${p.bound}, visibility ${p.visibility}, pthread pool ${p.pthreadPool}, stats ${JSON.stringify(p.stats)}, desync lines ${p.desyncLines.length}, error lines ${p.errorLines.length}`);
   for (const l of p.desyncLines) say(`  ${page.name} desync: ${l}`);
+}
+if (native) {
+  const p = summary.native;
+  say(`native: match ${p.reachedMatch} (at ${p.matchStartSeconds} s), running at end ${nativeRunning}, exited ${p.exited}, turn lines ${p.turnLines}, desync lines ${p.desyncLines.length}, error lines ${p.errorLines.length}`);
+  for (const l of p.desyncLines) say(`  native desync: ${l}`);
 }
 say(`PASS=${summary.pass}`);
 cleanup();
