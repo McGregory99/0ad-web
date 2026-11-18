@@ -151,6 +151,38 @@ test('"public" policy only forwards to public addresses and relay sessions', asy
 	await strict.close();
 });
 
+test('WebSocket closed during the UDP bind: no crash, relay keeps working', async () => {
+	// Node's global WebSocket has no terminate(); the relay's own `ws` package does.
+	const { createRequire } = await import('node:module');
+	const Client = createRequire(import.meta.url)('../emsdk/upstream/emscripten/node_modules/ws/index.js');
+	const own = await startRelay({ port: 0, log: () => {} });
+	const url = `ws://127.0.0.1:${own.port}/`;
+	const errors = [];
+	const record = (error) => errors.push(error);
+	process.on('uncaughtException', record);
+	process.on('unhandledRejection', record);
+	try {
+		for (let i = 0; i < 20; i++) {
+			const ws = new Client(url);
+			await new Promise((resolve, reject) => {
+				ws.once('open', resolve);
+				ws.once('error', reject);
+			});
+			ws.send(bindMsg(0));
+			ws.terminate();
+		}
+		await new Promise((r) => setTimeout(r, 500));
+		const c = await connect(url);
+		assert.ok((await bound(c)) > 0);
+		c.ws.close();
+	} finally {
+		process.off('uncaughtException', record);
+		process.off('unhandledRejection', record);
+		await own.close();
+	}
+	assert.deepEqual(errors.map((e) => (e && (e.stack || e.message)) || e), []);
+});
+
 test('isPublicIPv4', () => {
 	for (const ip of ['10.0.0.1', '127.0.0.1', '192.168.1.5', '172.20.0.1', '169.254.1.1', '100.64.0.1', '0.0.0.0', '224.0.0.1'])
 		assert.equal(isPublicIPv4(ip), false, ip);

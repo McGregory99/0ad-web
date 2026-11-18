@@ -70,6 +70,7 @@ typedef struct
     int used;
     int generation;
     int boundKnown;
+    int failed;              /* the relay refused or closed this socket: send and receive fail */
     ENetAddress bound;       /* from the relay's BOUND message */
     enet_uint16 requestedPort;
     TunnelFrame * head;
@@ -301,6 +302,19 @@ zeroad_net_bound (int slot, int generation, enet_uint32 host, int port)
     pthread_mutex_unlock (& tunnelLock);
 }
 
+/* The relay sent ERROR or closed the WebSocket on its own. Later sends and receives fail. */
+EMSCRIPTEN_KEEPALIVE void
+zeroad_net_failed (int slot, int generation)
+{
+    TunnelSocket * s;
+    pthread_mutex_lock (& tunnelLock);
+    s = tunnel_get (slot);
+    if (s != NULL && s -> generation == generation)
+      s -> failed = 1;
+    pthread_mutex_unlock (& tunnelLock);
+    pthread_cond_broadcast (& tunnelArrived);
+}
+
 /* Next command for the I/O thread, or NULL. JavaScript frees it with zeroad_net_free. */
 EMSCRIPTEN_KEEPALIVE TunnelCommand *
 zeroad_net_tx_pop (void)
@@ -514,6 +528,7 @@ enet_socket_send (ENetSocket socket,
 {
     size_t i, length = 0, offset;
     TunnelCommand * command;
+    TunnelSocket * s;
     uint8_t * message;
     int generation = 0, valid;
 
@@ -524,9 +539,10 @@ enet_socket_send (ENetSocket socket,
       length += buffers [i].dataLength;
 
     pthread_mutex_lock (& tunnelLock);
-    valid = tunnel_get (socket) != NULL;
+    s = tunnel_get (socket);
+    valid = s != NULL && ! s -> failed;
     if (valid)
-      generation = tunnelSockets [socket].generation;
+      generation = s -> generation;
     pthread_mutex_unlock (& tunnelLock);
 
     if (! valid)
@@ -570,9 +586,12 @@ enet_socket_receive (ENetSocket socket,
     TunnelSocket * s;
     TunnelFrame * frame = NULL;
     size_t i, payloadLength, capacity = 0, offset;
+    int failed = 0;
 
     pthread_mutex_lock (& tunnelLock);
     s = tunnel_get (socket);
+    if (s != NULL)
+      failed = s -> failed;
     if (s != NULL && s -> head != NULL)
     {
         frame = s -> head;
@@ -588,7 +607,7 @@ enet_socket_receive (ENetSocket socket,
     if (s == NULL)
       return -1;
     if (frame == NULL)
-      return 0;
+      return failed ? -1 : 0;
 
     for (i = 0; i < bufferCount; ++ i)
       capacity += buffers [i].dataLength;
@@ -644,7 +663,7 @@ enet_socketset_select (ENetSocket maxSocket, ENetSocketSet * readSet, ENetSocket
             if (FD_ISSET (socket, & wantRead))
             {
                 TunnelSocket * s = tunnel_get (socket);
-                if (s != NULL && s -> head != NULL)
+                if (s != NULL && (s -> head != NULL || s -> failed))
                   ++ ready;
             }
             /* Sends never block. */
@@ -667,7 +686,7 @@ enet_socketset_select (ENetSocket maxSocket, ENetSocketSet * readSet, ENetSocket
         if (FD_ISSET (socket, readSet))
         {
             TunnelSocket * s = tunnel_get (socket);
-            if (s == NULL || s -> head == NULL)
+            if (s == NULL || (s -> head == NULL && ! s -> failed))
               FD_CLR (socket, readSet);
         }
     if (writeSet != NULL)
@@ -708,14 +727,14 @@ enet_socket_wait (ENetSocket socket, enet_uint32 * condition, enet_uint32 timeou
             ! emscripten_is_main_runtime_thread ())
         {
             tunnel_deadline (& deadline, timeout);
-            while (s -> used && s -> generation == generation && s -> head == NULL)
+            while (s -> used && s -> generation == generation && s -> head == NULL && ! s -> failed)
               if (pthread_cond_timedwait (& tunnelArrived, & tunnelLock, & deadline) == ETIMEDOUT)
                 break;
         }
         if (! s -> used || s -> generation != generation)
           result = -1;
         else
-        if (s -> head != NULL)
+        if (s -> head != NULL || s -> failed)
           * condition |= ENET_SOCKET_WAIT_RECEIVE;
     }
     pthread_mutex_unlock (& tunnelLock);

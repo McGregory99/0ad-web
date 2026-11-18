@@ -89,6 +89,7 @@ function zeroadNetStartIoThread(relayUrl, signalPointer, statsPointer) {
 		} else if (bytes[0] === ERROR) {
 			count('errors');
 			log(s, `relay error: ${new TextDecoder().decode(bytes.subarray(1))}`);
+			_zeroad_net_failed(s.slot, s.generation);
 		}
 	};
 
@@ -110,7 +111,10 @@ function zeroadNetStartIoThread(relayUrl, signalPointer, statsPointer) {
 		s.ws.onerror = () => { if (!s.closed) count('errors'); };
 		s.ws.onclose = (event) => {
 			if (s.wasOpen) { s.wasOpen = false; count('open', -1); }
-			if (!s.closed) log(s, `closed by relay (code ${event.code}${event.reason ? ', ' + event.reason : ''})`);
+			if (!s.closed) {
+				log(s, `closed by relay (code ${event.code}${event.reason ? ', ' + event.reason : ''})`);
+				_zeroad_net_failed(s.slot, s.generation);
+			}
 			s.closed = true;
 			forget(s);
 		};

@@ -105,7 +105,7 @@ export async function startRelay(options = {}) {
 	wss.on('connection', (ws, request) => {
 		const id = nextId++;
 		const who = `#${id} ${request.socket.remoteAddress}`;
-		let udp = null, udpPort = 0, closed = false, lastActive = Date.now();
+		let udp = null, udpPort = 0, closed = false, binding = false, lastActive = Date.now();
 		stats.sessions++;
 		const close = (reason) => {
 			if (closed) return;
@@ -128,18 +128,23 @@ export async function startRelay(options = {}) {
 			lastActive = Date.now();
 			const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
 			if (!isBinary || buf.length === 0) return fail('binary messages only');
+			// The UDP socket is still binding: nothing can be sent or bound twice yet.
+			if (binding) { stats.dropped++; return; }
 			if (!udp) {
 				if (buf[0] !== BIND || buf.length !== 3) return fail('first message must be BIND');
 				const wanted = buf.readUInt16BE(1);
-				udp = dgram.createSocket('udp4');
+				const socket = dgram.createSocket('udp4');
+				binding = true;
 				try {
-					udpPort = await bindUdp(udp, wanted);
+					udpPort = await bindUdp(socket, wanted);
 				} catch (error) {
-					udp.close();
-					udp = null;
-					return fail(`bind ${wanted}: ${error.code ?? error.message}`);
+					socket.close();
+					binding = false;
+					return closed ? undefined : fail(`bind ${wanted}: ${error.code ?? error.message}`);
 				}
-				if (closed) { udp.close(); return; }
+				binding = false;
+				if (closed) { socket.close(); return; }
+				udp = socket;
 				boundPorts.add(udpPort);
 				udp.on('message', (msg, rinfo) => {
 					lastActive = Date.now();
