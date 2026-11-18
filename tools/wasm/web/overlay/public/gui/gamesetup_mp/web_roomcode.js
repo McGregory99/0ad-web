@@ -53,6 +53,22 @@ function webRoomCodeRandomPort(random)
 }
 
 /**
+ * Default name of a browser player in the host/join dialog. In the browser
+ * Engine.GetSystemUsername() is always "web_user", so every page would offer the same name and
+ * the server refuses the second player (NDR_PLAYERNAME_IN_USE). A name the user chose or saved
+ * is kept; otherwise a random "Player NNNN" is offered. `random` returns [0,1).
+ */
+function webDefaultPlayerName(current, systemName, random)
+{
+	const name = String(current === undefined || current === null ? "" : current).trim();
+	if (name && name !== systemName)
+		return current;
+
+	const n = 1000 + Math.floor(random() * 9000);
+	return "Player " + Math.max(1000, Math.min(9999, n));
+}
+
+/**
  * Hostname of the relay URL ("wss://play.example.org:20600/" -> "play.example.org"),
  * "" if it cannot be parsed. No URL object: the GUI script interface does not provide one.
  */
@@ -78,11 +94,20 @@ function webRelayHostname(relayUrl)
 
 	// Host page: a fresh random relay port is the room code. Only the field is set, the config is
 	// left alone (the XML Load action and startHost still read/save their own values).
+	// Both pages also get their own default player name: the browser's system user name is always
+	// "web_user", so the server would refuse the second player (NDR_PLAYERNAME_IN_USE). A name the
+	// player typed or saved is kept, and nothing is written to the config.
 	const webOriginalInit = init;
 	init = function(attribs)
 	{
-		if (attribs && attribs.multiplayerGameType === "host")
+		const isHost = attribs && attribs.multiplayerGameType === "host";
+		if (isHost)
 			Engine.GetGUIObjectByName("hostPort").caption = String(webRoomCodeRandomPort(Math.random));
+
+		const nameField = Engine.GetGUIObjectByName(isHost ? "hostPlayerName" : "joinPlayerName");
+		if (nameField)
+			nameField.caption = webDefaultPlayerName(nameField.caption, Engine.GetSystemUsername(), Math.random);
+
 		return webOriginalInit(attribs);
 	};
 

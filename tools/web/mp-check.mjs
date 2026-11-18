@@ -316,12 +316,9 @@ if (MP_GUI) {
   }
   // Step 3: client page, Conectar por IP, replace the server field's text with the code.
   if (ok) {
-    // Both pages default to the same player name (playername.multiplayer falls back to the
-    // system user "web_user"), and the server refuses a duplicate (NDR_PLAYERNAME_IN_USE,
-    // disconnect reason 8), so the joining page gets its own name.
-    const clientGuiQuery = `${base}&arg=-conf=playername.multiplayer:client`;
-    await client.s('Page.navigate', { url: `http://127.0.0.1:${port}/${clientGuiQuery}` });
-    say(`client page opened (GUI): ${clientGuiQuery}`);
+    // Both pages get their own default "Player NNNN" name from web_roomcode.js.
+    await client.s('Page.navigate', { url: `http://127.0.0.1:${port}/${base}` });
+    say(`client page opened (GUI): ${base}`);
     await sleep(25000);
     await client.click(491, 553);
     await sleep(2000);

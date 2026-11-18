@@ -12,7 +12,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, 'overlay/public/gui/gamesetup_mp/web_roomcode.js'), 'utf8');
 const sandbox = {};
 vm.runInNewContext(source, sandbox);
-const { webRoomCodeParse, webRoomCodeRandomPort, webRelayHostname } = sandbox;
+const { webRoomCodeParse, webRoomCodeRandomPort, webRelayHostname, webDefaultPlayerName } = sandbox;
 
 // "host:port" of a parse result, or "null", to compare across the VM realm.
 const parsed = (text) =>
@@ -82,4 +82,12 @@ test('the relay hostname comes out of a ws:// or wss:// URL', () =>
 	assert.equal(webRelayHostname('http://play.example.org/'), '');
 	assert.equal(webRelayHostname('play.example.org:20600'), '');
 	assert.equal(webRelayHostname(undefined), '');
+});
+
+test('a chosen name is kept, the system user name becomes a random Player NNNN', () =>
+{
+	assert.equal(webDefaultPlayerName('Ana', 'web_user', Math.random), 'Ana');
+	assert.equal(webDefaultPlayerName('web_user', 'web_user', () => 0), 'Player 1000');
+	assert.equal(webDefaultPlayerName('', 'web_user', () => 0.99999), 'Player 9999');
+	assert.equal(webDefaultPlayerName('  ', 'web_user', () => 0.5), 'Player 5500');
 });
