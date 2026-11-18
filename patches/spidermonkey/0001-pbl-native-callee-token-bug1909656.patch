@@ -1,0 +1,28 @@
+# Bug 1909656 - Don't push callee token for native calls in PBL (exit frame tracing was off by a word).
+# Upstream commit: https://github.com/mozilla-firefox/firefox/commit/b2d86ba15366d552ad8724850e0cc92cdf70b8a0
+# Apply with `patch -p1` from wasm/spidermonkey/mozjs-128.13.0.
+--- a/js/src/vm/PortableBaselineInterpret.cpp
++++ b/js/src/vm/PortableBaselineInterpret.cpp
+@@ -1830,10 +1830,6 @@
+         PUSH(origArgs[i]);
+       }
+       Value* args = reinterpret_cast<Value*>(sp);
+-
+-      TRACE_PRINTF("pushing callee: %p\n", callee);
+-      PUSHNATIVE(
+-          StackValNative(CalleeToToken(callee, /* isConstructing = */ false)));
+ 
+       if (isNative) {
+         PUSHNATIVE(StackValNative(argc));
+@@ -1864,7 +1860,11 @@
+         }
+         icregs.icResult = args[0].asRawBits();
+       } else {
++        TRACE_PRINTF("pushing callee: %p\n", callee);
+         PUSHNATIVE(StackValNative(
++            CalleeToToken(callee, /* isConstructing = */ false)));
++
++        PUSHNATIVE(StackValNative(
+             MakeFrameDescriptorForJitCall(FrameType::BaselineStub, argc)));
+ 
+         switch (PortableBaselineInterpret(
