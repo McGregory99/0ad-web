@@ -16,6 +16,10 @@
 //      MP_NATIVE=host — the native pyrogenesis is the host, listening on UDP 20595, and the browser
 //      client page joins 127.0.0.1 through the relay (T7.1d). Unset keeps the two-browser check.
 //      MP_NATIVE_ARGS extra native arguments, space-separated (e.g. "-autostart-nonvisual").
+//      MP_GUI=1 drives the real multiplayer dialogs instead of autostart (T7.1e2): the host page
+//      creates a room (Multijugador > Crear partida), its "Room code: <port>" console line is the
+//      code the client page types into Conectar por IP, and the host starts the match from the
+//      game setup page. summary.roomCode holds the code; <page>-step{1,3,4}.png are screenshots.
 // Writes <outdir>/{host,client}.console.log, relay.log, {host,client}.png, {host,client}.{mainlog,interestinglog}.html
 // (the engine's logs) and summary.json; with MP_NATIVE also native.log and native.mainlog.html.
 // Exit 0 when both pages reached the match, no desync line appeared, both sides sent and received
@@ -39,6 +43,7 @@ const MAP = process.env.MP_MAP || 'scenarios/arcadia';
 const RELAY_PORT = process.env.RELAY_PORT || '20600';
 const START_TIMEOUT = Number(process.env.MP_START_TIMEOUT || 420) * 1000;
 const MP_NATIVE = ['client', 'host'].includes(process.env.MP_NATIVE) ? process.env.MP_NATIVE : null;
+const MP_GUI = process.env.MP_GUI === '1';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 mkdirSync(outdir, { recursive: true });
 const t0 = Date.now();
@@ -113,6 +118,26 @@ const send = (method, params = {}, sessionId) => new Promise((ok, fail) => {
   ws.send(JSON.stringify({ id, method, params, sessionId }));
 });
 
+// DOM key name -> [code, Windows virtual key code]; SDL reads code/keyCode, not key
+// (same mapping as tools/web/chrome-shot.mjs).
+function keyInfo(key) {
+  const named = { Escape: ['Escape', 27], Enter: ['Enter', 13], Tab: ['Tab', 9], Backspace: ['Backspace', 8],
+    ' ': ['Space', 32], ArrowLeft: ['ArrowLeft', 37], ArrowUp: ['ArrowUp', 38], ArrowRight: ['ArrowRight', 39],
+    ArrowDown: ['ArrowDown', 40], Shift: ['ShiftLeft', 16], Control: ['ControlLeft', 17], Alt: ['AltLeft', 18],
+    Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34] };
+  if (named[key]) return named[key];
+  const f = /^F(\d{1,2})$/.exec(key);
+  if (f) return [key, 111 + Number(f[1])];
+  if (/^[a-z]$/i.test(key)) return [`Key${key.toUpperCase()}`, key.toUpperCase().charCodeAt(0)];
+  if (/^\d$/.test(key)) return [`Digit${key}`, key.charCodeAt(0)];
+  return [key, 0];
+}
+async function sendKey(page, type, key) {
+  const [code, vk] = keyInfo(key);
+  const text = key.length === 1 && type === 'keyDown' ? { text: key } : {};
+  await page.s('Input.dispatchKeyEvent', { type, key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, ...text });
+}
+
 // One page per window: a background tab is hidden, and the engine's frame loop runs on
 // requestAnimationFrame, which stops in hidden pages.
 async function openPage(name) {
@@ -159,6 +184,25 @@ async function openPage(name) {
   page.stats = async () => {
     const v = await page.evaluate('JSON.stringify(typeof Module !== "undefined" && Module.zeroadNet ? Module.zeroadNet.stats : null)');
     try { return JSON.parse(v); } catch { return v; }
+  };
+  // Input over the DevTools protocol (MP_GUI): CSS pixel coordinates, DOM key names.
+  page.click = async (x, y) => {
+    const mouse = (type, extra = {}) => page.s('Input.dispatchMouseEvent', {
+      type, x, y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, ...extra });
+    await mouse('mouseMoved');
+    await mouse('mousePressed', { clickCount: 1 });
+    await mouse('mouseReleased', { clickCount: 1 });
+    say(`${name}: click ${x},${y}`);
+  };
+  page.key = async (key) => {
+    await sendKey(page, 'keyDown', key);
+    await sendKey(page, 'keyUp', key);
+    say(`${name}: key ${key}`);
+  };
+  page.shot = async (file) => {
+    const { data } = await page.s('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(file, Buffer.from(data, 'base64'));
+    say(`${name}: screenshot ${file}`);
   };
   return page;
 }
@@ -245,7 +289,66 @@ const browserPages = [host, client].filter(Boolean);
 const summary = { map: MAP, matchSeconds };
 for (const page of browserPages) summary[page.name] = {};
 let ok = true;
-if (MP_NATIVE === 'host') {
+if (MP_GUI) {
+  // Step 1: host page, base query only (no autostart): dismiss the start overlay, then
+  // Multijugador > Crear partida > Continuar.
+  await host.s('Page.navigate', { url: `http://127.0.0.1:${port}/${base}` });
+  say(`host page opened (GUI): ${base}`);
+  await sleep(25000);
+  await host.click(491, 553);
+  await sleep(2000);
+  await host.click(180, 253);
+  await sleep(2000);
+  await host.click(418, 317);
+  await sleep(3000);
+  await host.click(748, 453);
+  await host.shot(join(outdir, 'host-step1.png'));
+  // Step 2: the room code the host shows in its page console (web_roomcode.js warn()).
+  ok = await waitFor('the host Room code line', () => host.lines.some((l) => /Room code: (\d+)/.test(l)), 60000);
+  const codeLine = host.lines.find((l) => /Room code: (\d+)/.test(l));
+  const code = codeLine ? /Room code: (\d+)/.exec(codeLine)[1] : null;
+  if (code) {
+    summary.roomCode = code;
+    say(`Room code: ${code}`);
+  } else {
+    say('no Room code line on the host page');
+    ok = false;
+  }
+  // Step 3: client page, Conectar por IP, replace the server field's text with the code.
+  if (ok) {
+    // Both pages default to the same player name (playername.multiplayer falls back to the
+    // system user "web_user"), and the server refuses a duplicate (NDR_PLAYERNAME_IN_USE,
+    // disconnect reason 8), so the joining page gets its own name.
+    const clientGuiQuery = `${base}&arg=-conf=playername.multiplayer:client`;
+    await client.s('Page.navigate', { url: `http://127.0.0.1:${port}/${clientGuiQuery}` });
+    say(`client page opened (GUI): ${clientGuiQuery}`);
+    await sleep(25000);
+    await client.click(491, 553);
+    await sleep(2000);
+    await client.click(180, 253);
+    await sleep(2000);
+    await client.click(418, 285);
+    await sleep(3000);
+    await client.click(748, 339);
+    await sleep(1000);
+    await client.key('End');
+    for (let i = 0; i < 20; i++) await client.key('Backspace');
+    for (const digit of code) await client.key(digit);
+    await sleep(1000);
+    await client.click(748, 473);
+    await client.shot(join(outdir, 'client-step3.png'));
+    await host.shot(join(outdir, 'host-step3.png'));
+    // Step 4: the client joins the host's game setup page and readies up (the bottom-right
+    // button is "I'm ready" for a joining client), then the host starts the match.
+    await sleep(20000);
+    await client.click(1185, 681);
+    await sleep(3000);
+    await host.click(1185, 681);
+    await host.shot(join(outdir, 'host-step4.png'));
+    await client.shot(join(outdir, 'client-step4.png'));
+    ok = await waitFor('both pages in the match', () => host.started && client.started, START_TIMEOUT);
+  }
+} else if (MP_NATIVE === 'host') {
   await client.s('Page.navigate', { url: `http://127.0.0.1:${port}/${clientQuery}` });
   say(`client page opened: ${clientQuery}`);
   ok = await waitFor('the browser page and the native side in the match', () => client.started && native.started, START_TIMEOUT);
