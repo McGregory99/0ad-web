@@ -79,6 +79,48 @@ function webRelayHostname(relayUrl)
 }
 
 /**
+ * Items of the join dialog's "Open games" drop-down from the relay's GET /rooms answer
+ * ({"rooms":[{"code","name","players","age"}]}, tools/relay/PROTOCOL.md). Returns
+ * { labels, codes }, both empty when the text is not a room list; codes are the room codes as
+ * strings (what the drop-down's list_data holds) and the labels are sorted by code.
+ * `escape` is the GUI's escapeText: room names are user text and must not become GUI markup.
+ */
+function webRoomListItems(text, escape)
+{
+	const items = { labels: [], codes: [] };
+
+	let rooms;
+	try
+	{
+		rooms = JSON.parse(String(text === undefined || text === null ? "" : text));
+	}
+	catch (error)
+	{
+		return items;
+	}
+	if (!rooms || !Array.isArray(rooms.rooms))
+		return items;
+
+	const listed = rooms.rooms.filter(room => room && Number.isInteger(room.code));
+	listed.sort((a, b) => a.code - b.code);
+
+	for (const room of listed)
+	{
+		let label;
+		if (typeof room.name === "string" && room.name)
+			label = escape(room.name) + " (" + room.code + ")";
+		else
+			label = "Room " + room.code;
+		if (Number.isInteger(room.players))
+			label += " — " + room.players + " players";
+		items.labels.push(label);
+		items.codes.push(String(room.code));
+	}
+
+	return items;
+}
+
+/**
  * The rest only applies to the browser build: Engine is absent in Node and the relay config is
  * empty in a native build, so nothing below runs there.
  */
@@ -100,6 +142,8 @@ function webRelayHostname(relayUrl)
 	const webOriginalInit = init;
 	init = function(attribs)
 	{
+		webInstallRoomList();
+
 		const isHost = attribs && attribs.multiplayerGameType === "host";
 		if (isHost)
 			Engine.GetGUIObjectByName("hostPort").caption = String(webRoomCodeRandomPort(Math.random));
@@ -133,6 +177,69 @@ function webRelayHostname(relayUrl)
 		return webOriginalConfirmSetup(loadSavedGame);
 	};
 
+	// Join page: the relay's open rooms (PROTOCOL.md "Room list") in a drop-down, refreshed every
+	// 2 s while the page is visible. Picking one writes its room code into the server field, which
+	// confirmSetup above reads (webRoomCodeParse accepts a bare code).
+	// Installed from init(): this file is loaded before the XML's objects exist.
+	let webRoomListInstalled = false;
+	function webInstallRoomList()
+	{
+		if (webRoomListInstalled || typeof Engine.WebRoomList !== "function")
+			return;
+		const joinRoomList = Engine.GetGUIObjectByName("joinRoomList");
+		const pageJoin = Engine.GetGUIObjectByName("pageJoin");
+		if (!joinRoomList || !pageJoin)
+			return;
+		webRoomListInstalled = true;
+
+		let lastFetch = 0;
+		let lastText = null;
+		joinRoomList.onTick = function()
+		{
+			if (pageJoin.hidden)
+				return;
+			const now = Date.now();
+			if (now - lastFetch < 2000)
+				return;
+			lastFetch = now;
+
+			const text = Engine.WebRoomList();
+			if (text === lastText)
+				return;
+			lastText = text;
+
+			// Keep the player's choice selected while its room is still listed.
+			const selected = joinRoomList.enabled ? joinRoomList.list_data[joinRoomList.selected] : "";
+			const items = webRoomListItems(text, escapeText);
+			if (!items.codes.length)
+			{
+				joinRoomList.list = ["(none)"];
+				joinRoomList.list_data = [""];
+				joinRoomList.enabled = false;
+				// "(none)" is item 0; its data is "", so no code is written to the server field.
+				if (joinRoomList.selected !== 0)
+					joinRoomList.selected = 0;
+				return;
+			}
+			joinRoomList.list = items.labels;
+			joinRoomList.list_data = items.codes;
+			joinRoomList.enabled = true;
+			// Keep the player's choice; nothing is selected until the player picks a room, so a room
+			// appearing never overwrites an address the player typed. Re-assigning the same index
+			// still fires SelectionChange, so only assign when it changed.
+			const index = items.codes.indexOf(selected);
+			if (joinRoomList.selected !== index)
+				joinRoomList.selected = index;
+		};
+
+		joinRoomList.onSelectionChange = function()
+		{
+			const code = joinRoomList.list_data[joinRoomList.selected];
+			if (code)
+				Engine.GetGUIObjectByName("joinServer").caption = code;
+		};
+	}
+
 	// After a successful host start, show the code. A failed bind throws inside the original
 	// startHost (enet_socket_bind waits for the relay's answer), which shows its own error box.
 	const webOriginalStartHost = startHost;
@@ -144,6 +251,11 @@ function webRelayHostname(relayUrl)
 		const code = `Room code: ${port}   (native 0 A.D.: ${webRelayHostname(relayUrl)}:${port})`;
 		Engine.GetGUIObjectByName("hostFeedback").caption = code;
 		warn(code);
+
+		// Tell the relay this room's name (PROTOCOL.md "Room list": a 0x03 META message on the
+		// socket bound to `port`) so other players find it in their "Open games" list.
+		if (typeof Engine.WebRoomAnnounce === "function")
+			warn("Room announce: " + Engine.WebRoomAnnounce(port, JSON.stringify({ "name": playername })));
 		return true;
 	};
 })();

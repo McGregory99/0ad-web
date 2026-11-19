@@ -2,10 +2,11 @@
 // (built into libenet.a by tools/wasm/build-enet.sh); the wire protocol is tools/relay/PROTOCOL.md.
 // Each ENet socket is one WebSocket to the relay, which owns a real UDP socket for it.
 //
-// Main thread: Module.zeroadNet = { relayUrl, stats }. The relay URL comes from the page query
+// Main thread: Module.zeroadNet = { relayUrl, stats, rooms }. The relay URL comes from the page query
 // ?relay=<ws url>, default ws[s]://<page hostname>:20600/. stats counts sockets, open WebSockets,
 // datagrams and payload bytes sent/received, drops and errors, and the datagrams/commands currently
-// queued for ENet (rxQueued) and for the I/O thread (txQueued) (tests read it).
+// queued for ENet (rxQueued) and for the I/O thread (txQueued) (tests read it). rooms holds the last
+// GET /rooms answer, fetched by roomsText() for the join dialog's "Open games" list (T7.2b).
 // The WebSockets themselves live on a dedicated pthread (the "network I/O" thread, started by
 // enet-tunnel.c before main), because the engine's main thread does not always return to the
 // event loop. That thread calls zeroadNetStartIoThread() and then only runs event handlers.
@@ -25,6 +26,28 @@ if (typeof window !== 'undefined' && (typeof ENVIRONMENT_IS_PTHREAD === 'undefin
 			const stats = {};
 			names.forEach((name, i) => { stats[name] = this.statsPointer ? HEAPU32[(this.statsPointer >> 2) + i] : 0; });
 			return stats;
+		},
+		// Room list (T7.2b): the relay's GET /rooms answer, shown by the join dialog's "Open games"
+		// drop-down (zeroad_net_rooms_json in enet-tunnel.c). The GUI polls every 2 s, so a fetch
+		// starts only when none is running and the last one started more than 2 s ago; the text
+		// stays "" before the first answer and after a failed fetch.
+		rooms: '',
+		roomsFetching: false,
+		roomsStarted: 0,
+		roomsText() {
+			const now = Date.now();
+			if (!this.roomsFetching && now - this.roomsStarted >= 2000) {
+				this.roomsFetching = true;
+				this.roomsStarted = now;
+				// ws:// -> http://, wss:// -> https://, exactly one '/' before "rooms".
+				const url = `${relayUrl.replace(/^ws(s?):\/\//i, 'http$1://').replace(/\/+$/, '')}/rooms`;
+				fetch(url, { cache: 'no-store' })
+					.then((response) => (response.ok ? response.text() : ''))
+					.then((text) => { this.rooms = text; })
+					.catch(() => { this.rooms = ''; })
+					.finally(() => { this.roomsFetching = false; });
+			}
+			return this.rooms;
 		},
 	};
 }

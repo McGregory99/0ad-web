@@ -1,0 +1,58 @@
+diff --git a/source/network/scripting/JSInterface_Network.cpp b/source/network/scripting/JSInterface_Network.cpp
+index 29b43768..b93dc3d6 100644
+--- a/source/network/scripting/JSInterface_Network.cpp
++++ b/source/network/scripting/JSInterface_Network.cpp
+@@ -45,6 +45,7 @@
+ #include <js/RootingAPI.h>
+ #include <js/TypeDecls.h>
+ #include <js/Value.h>
++#include <cstdlib>
+ #include <optional>
+ #include <stdexcept>
+ #include <string>
+@@ -333,6 +334,35 @@ void SendNetworkFlare(JS::HandleValue position)
+ 	);
+ }
+ 
++#ifdef __EMSCRIPTEN__
++// The browser build cannot fetch or open sockets from GUI JavaScript, so the ENet tunnel
++// (tools/wasm/enet-tunnel.c) does both: it fetches the relay's room list and sends the room
++// announcement on the socket bound to the room's UDP port (tools/relay/PROTOCOL.md).
++extern "C" char* zeroad_net_rooms_json(void);
++extern "C" int zeroad_net_room_meta(int port, const char* json);
++
++/**
++ * The relay's last room list text (JSON, "" before the first answer or after a failed fetch).
++ * The tunnel fetches again when the previous fetch started more than 2 s ago.
++ */
++std::wstring WebRoomList()
++{
++	char* text = zeroad_net_rooms_json();
++	const std::wstring result = text ? wstring_from_utf8(text) : std::wstring();
++	free(text);
++	return result;
++}
++
++/**
++ * Tell the relay that the socket bound to UDP `port` is a room with this metadata (a JSON
++ * object, e.g. {"name":"Ana's game"}), so the room shows up in other players' room lists.
++ */
++bool WebRoomAnnounce(int port, const std::string& json)
++{
++	return zeroad_net_room_meta(port, json.c_str()) == 0;
++}
++#endif
++
+ void RegisterScriptFunctions(const ScriptRequest& rq)
+ {
+ 	ScriptFunction::Register<&GetDefaultPort>(rq, "GetDefaultPort");
+@@ -354,5 +384,9 @@ void RegisterScriptFunctions(const ScriptRequest& rq)
+ 	ScriptFunction::Register<&StartNetworkGame>(rq, "StartNetworkGame");
+ 	ScriptFunction::Register<&SetTurnLength>(rq, "SetTurnLength");
+ 	ScriptFunction::Register<&SendNetworkFlare>(rq, "SendNetworkFlare");
++#ifdef __EMSCRIPTEN__
++	ScriptFunction::Register<&WebRoomList>(rq, "WebRoomList");
++	ScriptFunction::Register<&WebRoomAnnounce>(rq, "WebRoomAnnounce");
++#endif
+ }
+ }

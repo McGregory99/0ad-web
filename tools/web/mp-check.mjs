@@ -19,7 +19,10 @@
 //      MP_GUI=1 drives the real multiplayer dialogs instead of autostart (T7.1e2): the host page
 //      creates a room (Multijugador > Crear partida), its "Room code: <port>" console line is the
 //      code the client page types into Conectar por IP, and the host starts the match from the
-//      game setup page. summary.roomCode holds the code; <page>-step{1,3,4}.png are screenshots.
+//      game setup page. summary.roomCode holds the code; <page>-step{1,3,4}.png are screenshots,
+//      client-joindialog.png shows the join dialog with its "Open games" drop-down (T7.2b), and the
+//      relay's GET /rooms must list the room under the host's name (summary.roomListed/roomName).
+//      MP_GUI_LIST=1 (with MP_GUI) picks the room from that drop-down instead of typing the code.
 //      SITE_URL (e.g. https://192.168.0.28:8012/) loads that deployed site instead of starting the
 //      relay and serve.mjs; the page then uses its own default relay unless SITE_RELAY is set. Not
 //      supported with MP_NATIVE (exit 2).
@@ -53,6 +56,33 @@ const SITE_RELAY = (process.env.SITE_RELAY || '').trim();
 const siteBase = SITE_URL ? SITE_URL.replace(/\/+$/, '') : '';
 const pageUrl = (query) => (siteBase ? `${siteBase}/${query}` : `http://127.0.0.1:${port}/${query}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The relay's GET /rooms (T7.2a): the room list the join dialog's "Open games" drop-down shows.
+// With SITE_URL the relay is the deployed site's; its certificate is self-signed, so it is ignored
+// for this request only (not for the pages).
+const roomsUrl = SITE_URL
+  ? `https://${new URL(SITE_URL).hostname}:20600/rooms`
+  : `http://127.0.0.1:${RELAY_PORT}/rooms`;
+async function fetchRooms() {
+  if (!SITE_URL) {
+    const response = await fetch(roomsUrl, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`GET ${roomsUrl} answered ${response.status}`);
+    return await response.json();
+  }
+  const https = await import('node:https');
+  const url = new URL(roomsUrl);
+  return await new Promise((ok, fail) => {
+    const request = https.get({ hostname: url.hostname, port: url.port, path: url.pathname, rejectUnauthorized: false }, (response) => {
+      if (response.statusCode !== 200) { response.resume(); fail(new Error(`GET ${roomsUrl} answered ${response.statusCode}`)); return; }
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { body += chunk; });
+      response.on('end', () => { try { ok(JSON.parse(body)); } catch (error) { fail(error); } });
+    });
+    request.on('error', fail);
+    request.setTimeout(5000, () => request.destroy(new Error(`GET ${roomsUrl} timed out`)));
+  });
+}
 mkdirSync(outdir, { recursive: true });
 const t0 = Date.now();
 const stamp = () => ((Date.now() - t0) / 1000).toFixed(1);
@@ -336,6 +366,28 @@ if (MP_GUI) {
     say('no Room code line on the host page');
     ok = false;
   }
+  // Step 2b: the relay lists the host's room once the host announced its name (0x03 META, T7.2a).
+  if (ok) {
+    const end = Date.now() + 20000;
+    let room = null;
+    for (;;) {
+      try {
+        const rooms = await fetchRooms();
+        say(`rooms: ${JSON.stringify(rooms)}`);
+        const found = (rooms && Array.isArray(rooms.rooms) ? rooms.rooms : [])
+          .find((r) => String(r.code) === String(code) && typeof r.name === 'string' && r.name !== '');
+        if (found) { room = found; break; }
+      } catch (error) {
+        say(`rooms fetch failed: ${error.message || error}`);
+      }
+      if (Date.now() >= end) break;
+      await sleep(2000);
+    }
+    summary.roomListed = Boolean(room);
+    summary.roomName = room ? room.name : null;
+    say(`room listed: ${summary.roomListed}${room ? `, name ${room.name}` : ''}`);
+    if (!room) ok = false;
+  }
   // Step 3: client page, Conectar por IP, replace the server field's text with the code.
   if (ok) {
     // Both pages get their own default "Player NNNN" name from web_roomcode.js.
@@ -348,11 +400,26 @@ if (MP_GUI) {
     await sleep(2000);
     await client.click(418, 285);
     await sleep(3000);
-    await client.click(748, 339);
-    await sleep(1000);
-    await client.key('End');
-    for (let i = 0; i < 20; i++) await client.key('Backspace');
-    for (const digit of code) await client.key(digit);
+    // The join dialog's "Open games" drop-down fills from the relay's room list within a few
+    // seconds (web_roomcode.js polls Engine.WebRoomList every 2 s): capture it before typing.
+    await sleep(5000);
+    await client.shot(join(outdir, 'client-joindialog.png'));
+    if (process.env.MP_GUI_LIST === '1') {
+      // Pick the first open game from the drop-down instead of typing the code: its
+      // SelectionChange writes the code into the server field.
+      await client.click(748, 379);
+      await sleep(1000);
+      await client.shot(join(outdir, 'client-droplist.png'));
+      await client.click(748, 403);
+      await sleep(1000);
+      await client.shot(join(outdir, 'client-picked.png'));
+    } else {
+      await client.click(748, 339);
+      await sleep(1000);
+      await client.key('End');
+      for (let i = 0; i < 20; i++) await client.key('Backspace');
+      for (const digit of code) await client.key(digit);
+    }
     await sleep(1000);
     await client.click(748, 473);
     await client.shot(join(outdir, 'client-step3.png'));
@@ -446,7 +513,8 @@ const nativeRunning = Boolean(native) && native.proc.exitCode === null && native
 summary.pass = Boolean(ok && browserPages.every((page) => {
   const p = summary[page.name];
   return p.reachedMatch && p.desyncLines.length === 0 && Boolean(grew(p)) && p.connectedAtEnd;
-}) && (!native || (summary.native.reachedMatch && nativeRunning && summary.native.desyncLines.length === 0)));
+}) && (!native || (summary.native.reachedMatch && nativeRunning && summary.native.desyncLines.length === 0)) &&
+  (!MP_GUI || summary.roomListed));
 writeFileSync(join(outdir, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
 for (const page of browserPages) {
   const p = summary[page.name];

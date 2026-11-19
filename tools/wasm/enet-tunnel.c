@@ -359,6 +359,60 @@ zeroad_net_log (char * message)
     }, message);
 }
 
+/* ---- Room list (T7.2b, PROTOCOL.md "Room list") ---- */
+
+/* Announce the room of the tunnel socket bound to UDP `port` (the room code) to the relay: one
+   META message [0x03][utf-8 JSON object], sent verbatim like a SEND. Returns 0, or -1 when no
+   open socket is bound to that port or the JSON does not fit the relay's 513-byte META limit. */
+EMSCRIPTEN_KEEPALIVE int
+zeroad_net_room_meta (int port, const char * json)
+{
+    TunnelCommand * command;
+    size_t length;
+    int slot = -1, generation = 0, i;
+
+    if (json == NULL || (length = strlen (json)) > 512)
+      return -1;
+
+    pthread_mutex_lock (& tunnelLock);
+    for (i = 0; i < TUNNEL_MAX_SOCKETS; ++ i)
+    {
+        TunnelSocket * s = & tunnelSockets [i];
+        if (s -> used && ! s -> failed && s -> boundKnown && (int) s -> bound.port == port)
+        {
+            slot = i;
+            generation = s -> generation;
+            break;
+        }
+    }
+    pthread_mutex_unlock (& tunnelLock);
+
+    if (slot < 0)
+      return -1;
+
+    command = (TunnelCommand *) malloc (sizeof (TunnelCommand) + 1 + length);
+    if (command == NULL)
+      return -1;
+    command -> type = TUNNEL_SEND_DATA;
+    command -> slot = slot;
+    command -> generation = generation;
+    command -> port = 0;
+    command -> length = (int32_t) (1 + length);
+    command -> data [0] = 0x03;
+    memcpy (command -> data + 1, json, length);
+    tunnel_post (command);
+    return 0;
+}
+
+/* The relay's last room list text (GET /rooms), "" before the first answer or after a failed
+   fetch. Asks Module.zeroadNet.roomsText() (main thread, enet-tunnel.pre.js), which fetches again
+   when none is running and the last one started more than 2 s ago. The caller frees the result. */
+EM_JS (char *, zeroad_net_rooms_json, (void), {
+    if (typeof Module.zeroadNet !== 'object' || typeof Module.zeroadNet.roomsText !== 'function')
+        return stringToNewUTF8 ("");
+    return stringToNewUTF8 (Module.zeroadNet.roomsText ());
+});
+
 /* ---- ENet socket API ---- */
 
 ENetSocket

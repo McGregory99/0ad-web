@@ -1,4 +1,4 @@
-// Unit tests for the room-code helpers of the browser GUI overlay (T7.1e).
+// Unit tests for the room-code and room-list helpers of the browser GUI overlay (T7.1e, T7.2b).
 // The GUI file is loaded in a fresh VM context without Engine: it must not need the engine,
 // and the override section must change nothing there (the native-build path).
 import { readFileSync } from 'node:fs';
@@ -12,7 +12,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, 'overlay/public/gui/gamesetup_mp/web_roomcode.js'), 'utf8');
 const sandbox = {};
 vm.runInNewContext(source, sandbox);
-const { webRoomCodeParse, webRoomCodeRandomPort, webRelayHostname, webDefaultPlayerName } = sandbox;
+const { webRoomCodeParse, webRoomCodeRandomPort, webRelayHostname, webDefaultPlayerName, webRoomListItems } = sandbox;
 
 // "host:port" of a parse result, or "null", to compare across the VM realm.
 const parsed = (text) =>
@@ -90,4 +90,61 @@ test('a chosen name is kept, the system user name becomes a random Player NNNN',
 	assert.equal(webDefaultPlayerName('web_user', 'web_user', () => 0), 'Player 1000');
 	assert.equal(webDefaultPlayerName('', 'web_user', () => 0.99999), 'Player 9999');
 	assert.equal(webDefaultPlayerName('  ', 'web_user', () => 0.5), 'Player 5500');
+});
+
+// "labels|codes" of a room list, to compare across the VM realm.
+const listed = (text, escape = s => s) =>
+{
+	const items = webRoomListItems(text, escape);
+	return `${Array.from(items.labels).join('|')}#${Array.from(items.codes).join('|')}`;
+};
+
+test('an empty, invalid or room-less answer lists nothing', () =>
+{
+	assert.equal(listed(''), '#');
+	assert.equal(listed('x{'), '#');
+	assert.equal(listed('{}'), '#');
+	assert.equal(listed('{"rooms":[]}'), '#');
+	assert.equal(listed('{"rooms":"nope"}'), '#');
+	assert.equal(listed(null), '#');
+	assert.equal(listed(undefined), '#');
+});
+
+test('rooms are sorted by code', () =>
+{
+	assert.equal(
+		listed('{"rooms":[{"code":20710,"name":"Bob"},{"code":20705,"name":"Ana"}]}'),
+		'Ana (20705)|Bob (20710)#20705|20710');
+});
+
+test('a room without a name is shown as Room <code>', () =>
+{
+	assert.equal(listed('{"rooms":[{"code":20705,"name":null}]}'), 'Room 20705#20705');
+	assert.equal(listed('{"rooms":[{"code":20705}]}'), 'Room 20705#20705');
+	assert.equal(listed('{"rooms":[{"code":20705,"name":""}]}'), 'Room 20705#20705');
+	assert.equal(listed('{"rooms":[{"code":20705,"name":42}]}'), 'Room 20705#20705');
+});
+
+test('a room without an integer code is skipped', () =>
+{
+	assert.equal(
+		listed('{"rooms":[{"code":"20705"},{"code":20705.5},{"code":20706,"name":"Ana"}]}'),
+		'Ana (20706)#20706');
+});
+
+test('the room name goes through the escape function', () =>
+{
+	assert.equal(
+		listed('{"rooms":[{"code":20705,"name":"[font=serif]x"}]}', s => '<' + s + '>'),
+		'<[font=serif]x> (20705)#20705');
+});
+
+test('the player count is appended when it is an integer', () =>
+{
+	assert.equal(
+		listed('{"rooms":[{"code":20705,"name":"Ana","players":2}]}'),
+		'Ana (20705) — 2 players#20705');
+	assert.equal(listed('{"rooms":[{"code":20705,"name":"Ana","players":null}]}'), 'Ana (20705)#20705');
+	assert.equal(listed('{"rooms":[{"code":20705,"players":0}]}'), 'Room 20705 — 0 players#20705');
+	assert.equal(listed('{"rooms":[{"code":20705,"players":"2"}]}'), 'Room 20705#20705');
 });
