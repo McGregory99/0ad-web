@@ -9,9 +9,9 @@
 // Emscripten's ICU port links only ICU's stub data; the real data file is preloaded at /icu.
 Module.preRun = [].concat(Module.preRun || [], () => {
 	ENV.ICU_DATA = '/icu';
-	// PBL is on since the backport of upstream bug 1909656 (T0.5b); ?pbl=0 keeps the old
-	// C++-interpreter path for comparison.
-	ENV.JIT_OPTION_portableBaselineInterpreter = new URLSearchParams(location.search).get('pbl') === '0' ? 'false' : 'true';
+	// PBL is off by default again: with it on, browser pages froze (T0.4g mid-match, T0.4h at
+	// startup) while ?pbl=0 ran clean. ?pbl=1 turns it on for the T0.5d investigation.
+	ENV.JIT_OPTION_portableBaselineInterpreter = new URLSearchParams(location.search).get('pbl') === '1' ? 'true' : 'false';
 });
 // Reference replay check (T5.3, tools/web/replay-check.sh): index.html?replay=<url of commands.txt>
 // &arg=-replay=/replay/commands.txt copies the replay into the in-memory file system before main()
