@@ -19,7 +19,7 @@ Read `AGENTS.md` and `runbooks/_wave4-common.md` too: their rules apply, with th
   Never hold the engine lock while waiting for the mp lock.
 - **Keep the Mac awake** for any test longer than a minute: prefix it with `caffeinate -dims`.
 - Long commands write to a log under `runs/<task>/` and you show only `tail -20` of it.
-- Ports: t71x http 8105 / relay 20610; t71c http 8106 / relay 20620; t82 http 8107; t44 http 8108; t71e http 8109 / relay 20640; t05 http 8110; t45 http 8111; t71e3 http 8109 / relay 20640; t45b http 8111 / relay 20650; t72 none (tests use port 0); t72b http 8112 / relay 20660.
+- Ports: t71x http 8105 / relay 20610; t71c http 8106 / relay 20620; t82 http 8107; t44 http 8108; t71e http 8109 / relay 20640; t05 http 8110; t45 http 8111; t71e3 http 8109 / relay 20640; t45b http 8111 / relay 20650; t72 none (tests use port 0); t72b http 8112 / relay 20660; t04g http 8113.
 - Your own web build copy is `runs/web-<you>`. Copy it only through the engine lock
   (`cp -RP`, keeps the symlinks).
 - No commits. The supervisor reviews your diff (`git diff -- <your files>`) and commits.
