@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import dgram from 'node:dgram';
 import { after, before, test } from 'node:test';
-import { BIND, BOUND, ERROR, MAX_PAYLOAD, RECV, SEND, isPublicIPv4, startRelay } from './relay.mjs';
+import { BIND, BOUND, ERROR, MAX_PAYLOAD, META, RECV, SEND, isPublicIPv4, startRelay } from './relay.mjs';
 
 let relay;
 before(async () => { relay = await startRelay({ port: 0, log: () => {} }); });
@@ -30,6 +30,7 @@ async function connect(url = `ws://127.0.0.1:${relay.port}/`) {
 }
 
 const bindMsg = (port) => Buffer.from([BIND, port >> 8, port & 0xff]);
+const metaMsg = (value) => Buffer.concat([Buffer.from([META]), Buffer.from(typeof value === 'string' ? value : JSON.stringify(value))]);
 const sendMsg = (ip, port, payload) => Buffer.concat([Buffer.from([SEND, ...ip.split('.').map(Number), port >> 8, port & 0xff]), payload]);
 const parse = (m) => ({ type: m[0], ip: `${m[1]}.${m[2]}.${m[3]}.${m[4]}`, port: m.readUInt16BE(5), payload: m.subarray(7) });
 
@@ -55,6 +56,24 @@ const until = async (cond, ms = 2000) => {
 		await new Promise((r) => setTimeout(r, 10));
 	}
 };
+
+// A free UDP port on this machine: the room code a test room will bind on the relay.
+async function freeUdpPort() {
+	const sock = dgram.createSocket('udp4');
+	await new Promise((r) => sock.bind(0, '127.0.0.1', r));
+	const port = sock.address().port;
+	await new Promise((r) => sock.close(r));
+	return port;
+}
+
+// A relay whose room range is exactly one port P, so a test controls who is a room.
+async function roomRelay() {
+	const roomPort = await freeUdpPort();
+	const room = await startRelay({ port: 0, roomMin: roomPort, roomMax: roomPort, log: () => {} });
+	const base = `http://127.0.0.1:${room.port}`;
+	const list = async () => (await (await fetch(`${base}/rooms`)).json()).rooms;
+	return { relay: room, roomPort, base, list, url: `ws://127.0.0.1:${room.port}/`, close: () => room.close() };
+}
 
 test('BIND 0 replies BOUND with a free UDP port', async () => {
 	const c = await connect();
@@ -188,4 +207,136 @@ test('isPublicIPv4', () => {
 		assert.equal(isPublicIPv4(ip), false, ip);
 	for (const ip of ['8.8.8.8', '172.32.0.1', '100.128.0.1', '1.1.1.1'])
 		assert.equal(isPublicIPv4(ip), true, ip);
+});
+
+test('GET /rooms on a relay with no sessions is an empty list with the CORS/CORP headers', async () => {
+	const room = await roomRelay();
+	try {
+		const res = await fetch(`${room.base}/rooms`);
+		assert.equal(res.status, 200);
+		assert.equal(res.headers.get('content-type'), 'application/json');
+		assert.equal(res.headers.get('cache-control'), 'no-store');
+		assert.equal(res.headers.get('access-control-allow-origin'), '*');
+		assert.equal(res.headers.get('cross-origin-resource-policy'), 'cross-origin');
+		assert.deepEqual(await res.json(), { rooms: [] });
+	} finally {
+		await room.close();
+	}
+});
+
+test('a room session is listed, META fills name and players, closing removes it', async () => {
+	const room = await roomRelay();
+	const c = await connect(room.url);
+	try {
+		assert.equal(await bound(c, room.roomPort), room.roomPort);
+		let rooms = await room.list();
+		assert.equal(rooms.length, 1);
+		assert.equal(rooms[0].code, room.roomPort);
+		assert.equal(rooms[0].name, null);
+		assert.equal(rooms[0].players, null);
+		assert.ok(rooms[0].age === 0 || rooms[0].age === 1, `age ${rooms[0].age}`);
+		c.ws.send(metaMsg({ name: "Ana's game", players: 2 }));
+		await new Promise((r) => setTimeout(r, 100));
+		rooms = await room.list();
+		assert.equal(rooms[0].name, "Ana's game");
+		assert.equal(rooms[0].players, 2);
+		c.ws.close();
+		await c.closed;
+		await new Promise((r) => setTimeout(r, 100));
+		assert.deepEqual(await room.list(), []);
+	} finally {
+		c.ws.close();
+		await room.close();
+	}
+});
+
+test('a session bound outside the room range is not listed and its META is dropped', async () => {
+	const c = await connect();
+	const port = await bound(c);
+	const peer = await udpPeer();
+	try {
+		assert.ok(port < 20700 || port > 20999, `port ${port}`);
+		const before = relay.stats.dropped;
+		c.ws.send(metaMsg({ name: 'not a room', players: 1 }));
+		c.ws.send(sendMsg('127.0.0.1', peer.port, Buffer.from('still alive')));
+		await until(() => peer.received.length === 1);
+		assert.equal(peer.received[0].msg.toString(), 'still alive');
+		assert.equal(relay.stats.dropped, before + 1);
+		const rooms = (await (await fetch(`http://127.0.0.1:${relay.port}/rooms`)).json()).rooms;
+		assert.equal(rooms.some((room) => room.code === port), false);
+	} finally {
+		peer.sock.close();
+		c.ws.close();
+	}
+});
+
+test('a room drops invalid META without closing and keeps the last valid name', async () => {
+	const room = await roomRelay();
+	const c = await connect(room.url);
+	try {
+		await bound(c, room.roomPort);
+		c.ws.send(metaMsg({ name: 'ok', players: 1 }));
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal((await room.list())[0].name, 'ok');
+		const before = room.relay.stats.dropped;
+		c.ws.send(metaMsg('{not json'));
+		c.ws.send(metaMsg('[1,2]'));
+		c.ws.send(Buffer.concat([Buffer.from([META]), Buffer.alloc(513, 0x20)])); // 514 bytes
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(room.relay.stats.dropped, before + 3);
+		const rooms = await room.list();
+		assert.equal(rooms.length, 1);
+		assert.equal(rooms[0].name, 'ok');
+		assert.equal(rooms[0].players, 1);
+	} finally {
+		c.ws.close();
+		await room.close();
+	}
+});
+
+test('META cleans the name and validates players', async () => {
+	const room = await roomRelay();
+	const c = await connect(room.url);
+	try {
+		await bound(c, room.roomPort);
+		c.ws.send(metaMsg({ name: '  a\u0001b  ', players: 99 }));
+		await new Promise((r) => setTimeout(r, 100));
+		let listed = (await room.list())[0];
+		assert.equal(listed.name, 'ab');
+		assert.equal(listed.players, null);
+		c.ws.send(metaMsg({ name: 'x'.repeat(50) }));
+		await new Promise((r) => setTimeout(r, 100));
+		listed = (await room.list())[0];
+		assert.equal(listed.name, 'x'.repeat(40));
+		assert.equal(listed.players, null);
+		c.ws.send(metaMsg({ name: 5 }));
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal((await room.list())[0].name, null);
+	} finally {
+		c.ws.close();
+		await room.close();
+	}
+});
+
+test('META as the very first message is an error and closes the WebSocket', async () => {
+	const c = await connect();
+	c.ws.send(metaMsg({ name: 'too early' }));
+	assert.equal((await c.next())[0], ERROR);
+	await c.closed;
+});
+
+test('HTTP: unknown paths 404, other methods on /rooms 405, query string ignored', async () => {
+	const room = await roomRelay();
+	try {
+		const nope = await fetch(`${room.base}/nope`);
+		assert.equal(nope.status, 404);
+		const post = await fetch(`${room.base}/rooms`, { method: 'POST' });
+		assert.equal(post.status, 405);
+		assert.equal(post.headers.get('allow'), 'GET');
+		const query = await fetch(`${room.base}/rooms?x=1`);
+		assert.equal(query.status, 200);
+		assert.deepEqual(await query.json(), { rooms: [] });
+	} finally {
+		await room.close();
+	}
 });

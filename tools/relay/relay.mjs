@@ -14,6 +14,7 @@
 //   RELAY_DEST       destination policy: "any" (default when RELAY_HOST is loopback) or "public"
 //                    (only public unicast addresses and this relay's own sessions; default otherwise)
 //   RELAY_IDLE_MS    close sessions idle this long (default 120000)
+//   RELAY_ROOM_MIN, RELAY_ROOM_MAX   UDP port range that counts as a game room (default 20700 / 20999)
 import dgram from 'node:dgram';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -21,8 +22,9 @@ import https from 'node:https';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
-export const BIND = 0x01, SEND = 0x02, BOUND = 0x81, ERROR = 0x82, RECV = 0x83;
+export const BIND = 0x01, SEND = 0x02, META = 0x03, BOUND = 0x81, ERROR = 0x82, RECV = 0x83;
 export const MAX_PAYLOAD = 4096;
+export const MAX_META = 513; // type + at most 512 bytes of JSON
 const HEADER = 7; // type + ipv4 + port
 
 // The `ws` package: installed next to the relay in production, otherwise the copy bundled with emsdk.
@@ -33,6 +35,13 @@ async function loadWs() {
 		const require = createRequire(import.meta.url);
 		return require(fileURLToPath(new URL('../emsdk/upstream/emscripten/node_modules/ws/index.js', import.meta.url)));
 	}
+}
+
+// A META name is user text: drop control characters, trim, keep the first 40 characters.
+function cleanName(value) {
+	if (typeof value !== 'string') return null;
+	const text = Array.from(value.replace(/[\u0000-\u001f\u007f]/g, '').trim()).slice(0, 40).join('');
+	return text === '' ? null : text;
 }
 
 const ipToBytes = (ip) => ip.split('.').map(Number);
@@ -64,6 +73,8 @@ export async function startRelay(options = {}) {
 	const udpMax = Number(options.udpMax ?? process.env.RELAY_UDP_MAX ?? 0);
 	const dest = options.dest ?? process.env.RELAY_DEST ?? (isLoopback(host) ? 'any' : 'public');
 	const idleMs = Number(options.idleMs ?? process.env.RELAY_IDLE_MS ?? 120000);
+	const roomMin = Number(options.roomMin ?? process.env.RELAY_ROOM_MIN ?? 20700);
+	const roomMax = Number(options.roomMax ?? process.env.RELAY_ROOM_MAX ?? 20999);
 	const cert = options.cert ?? process.env.RELAY_TLS_CERT;
 	const key = options.key ?? process.env.RELAY_TLS_KEY;
 	const log = options.log ?? ((line) => console.log(`[relay] ${line}`));
@@ -75,6 +86,7 @@ export async function startRelay(options = {}) {
 		: http.createServer();
 	const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 });
 	const boundPorts = new Set();
+	const rooms = new Map(); // udp port -> { code, name, players, since }
 	const stats = { sessions: 0, toUdp: 0, toWs: 0, dropped: 0 };
 	let nextId = 1;
 
@@ -113,6 +125,7 @@ export async function startRelay(options = {}) {
 			clearInterval(idleTimer);
 			if (udp) {
 				boundPorts.delete(udpPort);
+				rooms.delete(udpPort);
 				udp.close();
 			}
 			if (ws.readyState === ws.OPEN) ws.close();
@@ -146,6 +159,9 @@ export async function startRelay(options = {}) {
 				if (closed) { socket.close(); return; }
 				udp = socket;
 				boundPorts.add(udpPort);
+				if (udpPort >= roomMin && udpPort <= roomMax) {
+					rooms.set(udpPort, { code: udpPort, name: null, players: null, since: Date.now() });
+				}
 				udp.on('message', (msg, rinfo) => {
 					lastActive = Date.now();
 					if (msg.length > MAX_PAYLOAD || ws.bufferedAmount > 1 << 20) { stats.dropped++; return; }
@@ -158,6 +174,21 @@ export async function startRelay(options = {}) {
 				return;
 			}
 			if (buf[0] === BIND) return fail('BIND sent twice');
+			if (buf[0] === META) {
+				const room = rooms.get(udpPort);
+				if (!room || buf.length > MAX_META) { stats.dropped++; return; }
+				let meta;
+				try {
+					meta = JSON.parse(buf.subarray(1).toString('utf8'));
+				} catch {
+					stats.dropped++;
+					return;
+				}
+				if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) { stats.dropped++; return; }
+				room.name = cleanName(meta.name);
+				room.players = Number.isInteger(meta.players) && meta.players >= 0 && meta.players <= 64 ? meta.players : null;
+				return;
+			}
 			// SEND before BOUND is ignored (the UDP socket is still binding).
 			if (buf[0] !== SEND || buf.length < HEADER || !udpPort) { stats.dropped++; return; }
 			const ip = bytesToIp(buf, 1), p = buf.readUInt16BE(5);
@@ -168,6 +199,32 @@ export async function startRelay(options = {}) {
 		ws.on('close', () => close('websocket closed'));
 		ws.on('error', (error) => close(`websocket: ${error.message}`));
 		log(`${who} connected`);
+	});
+
+	// Plain HTTP shares the server with the WebSocket upgrades (the `ws` package handles those).
+	server.on('request', (request, response) => {
+		const path = new URL(request.url ?? '/', 'http://relay.invalid').pathname;
+		if (path !== '/rooms') {
+			response.writeHead(404, { 'Content-Type': 'text/plain' });
+			response.end('not found');
+			return;
+		}
+		if (request.method !== 'GET') {
+			response.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET' });
+			response.end('method not allowed');
+			return;
+		}
+		const now = Date.now();
+		const list = [...rooms.values()]
+			.sort((a, b) => a.code - b.code)
+			.map((room) => ({ code: room.code, name: room.name, players: room.players, age: Math.floor((now - room.since) / 1000) }));
+		response.writeHead(200, {
+			'Content-Type': 'application/json',
+			'Cache-Control': 'no-store',
+			'Access-Control-Allow-Origin': '*',
+			'Cross-Origin-Resource-Policy': 'cross-origin',
+		});
+		response.end(JSON.stringify({ rooms: list }));
 	});
 
 	await new Promise((resolve, reject) => {
